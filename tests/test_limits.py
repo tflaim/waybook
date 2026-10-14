@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from waybook.board import BODY_MAX, _fence_is_open, fit_body, truncation_pointer
-
+import secret_fixtures
 from test_acceptance import init, run
+from waybook.board import BODY_MAX, _fence_is_open, fit_body, truncation_pointer
 
 
 class FitBodyTests(unittest.TestCase):
@@ -114,7 +114,7 @@ class EntryLimitTests(unittest.TestCase):
         self.assertEqual(verified.returncode, 0, verified.stderr)
 
     def test_secret_past_the_cut_is_still_refused(self):
-        secret = "AKIA" + "A" * 16
+        secret = secret_fixtures.aws_access_key_run_of_a()
         body = self.project / "body.md"
         body.write_text(("q" * (BODY_MAX + 50)) + secret, encoding="utf-8")
         added = run(

@@ -13,6 +13,7 @@ import time
 import unittest
 from pathlib import Path
 
+import secret_fixtures
 from test_acceptance import _append_route, _base_env, init, run
 
 
@@ -502,20 +503,20 @@ class SecretTests(unittest.TestCase):
         self.assertNotIn(secret, warmed.stdout)
 
     def test_add_refuses_aws_key_without_echoing_it(self):
-        self._refuse("AKIAIOSFODNN7EXAMPLE", "aws_access_key", field="title")
+        self._refuse(secret_fixtures.aws_access_key_example(), "aws_access_key", field="title")
 
     def test_add_refuses_pem_private_key(self):
-        self._refuse("-----BEGIN RSA PRIVATE KEY-----", "pem_private_key")
+        self._refuse(secret_fixtures.rsa_private_key_header(), "pem_private_key")
 
     def test_add_refuses_sk_live_and_sk_secret(self):
-        self._refuse("sk-live-abcdefghijklmnopqrstuvwxyz", "sk_live")
-        self._refuse("sk-abcdefghijklmnopqrstuvwxyz123456", "sk_secret")
+        self._refuse(secret_fixtures.live_secret_key(), "sk_live")
+        self._refuse(secret_fixtures.generic_secret_key(), "sk_secret")
 
     def test_add_refuses_github_token(self):
-        self._refuse("ghp_" + ("a" * 36), "github_token")
+        self._refuse(secret_fixtures.github_token_a(), "github_token")
 
     def test_flush_refuses_secret_and_exits_zero(self):
-        secret = "ghp_" + ("b" * 36)
+        secret = secret_fixtures.github_token_b()
         pending = self.project / ".waybook" / ".pending" / "notes.txt"
         pending.write_text("token " + secret + "\n", encoding="utf-8")
         flushed = run(["flush"], self.project)
@@ -825,13 +826,13 @@ class FollowupReviewTests(unittest.TestCase):
         self.assertNotIn(secret, stored)
 
     def test_add_refuses_sk_proj_key(self):
-        self._refuse_add("sk-proj-" + ("a" * 40), "sk_proj")
+        self._refuse_add(secret_fixtures.project_secret_key(), "sk_proj")
 
     def test_add_refuses_sk_ant_key(self):
-        self._refuse_add("sk-ant-api03-" + ("b" * 40), "sk_ant")
+        self._refuse_add(secret_fixtures.anthropic_api_key(), "sk_ant")
 
     def test_add_refuses_aws_asia_key(self):
-        self._refuse_add("ASIAIOSFODNN7EXAMPLE", "aws_access_key")
+        self._refuse_add(secret_fixtures.aws_temporary_key_example(), "aws_access_key")
 
     def test_mark_resolved_note_refuses_secret_without_echoing_it(self):
         added = run(
@@ -840,7 +841,7 @@ class FollowupReviewTests(unittest.TestCase):
         )
         self.assertEqual(added.returncode, 0, added.stderr)
         entry_id = added.stdout.strip().split()[-1]
-        secret = "AKIAIOSFODNN7EXAMPLE"
+        secret = secret_fixtures.aws_access_key_example()
         marked = run(
             ["--json", "mark-resolved", entry_id, "--resolution", "explicit", "--note", secret],
             self.project,
@@ -1123,16 +1124,16 @@ class RecheckTests(unittest.TestCase):
         self.assertNotIn(secret, added.stdout)
 
     def test_add_refuses_akia_with_zero_width_space(self):
-        self._refuse_add("AKIA\u200bIOSFODNN7EXAMPLE", "aws_access_key")
+        self._refuse_add(secret_fixtures.aws_access_key_with_zwsp(), "aws_access_key")
 
     def test_add_refuses_lowercase_pem_header(self):
-        self._refuse_add("-----begin rsa private key-----", "pem_private_key")
+        self._refuse_add(secret_fixtures.rsa_private_key_header_lower(), "pem_private_key")
 
     def test_add_refuses_sk_live_underscore(self):
-        self._refuse_add("sk_live_" + ("a" * 20), "sk_live")
+        self._refuse_add(secret_fixtures.live_secret_key_underscore(), "sk_live")
 
     def test_add_refuses_sk_proj_underscore_before_body(self):
-        self._refuse_add("sk-proj-_" + ("b" * 40), "sk_proj")
+        self._refuse_add(secret_fixtures.project_secret_key_underscore(), "sk_proj")
 
     def test_add_refuses_sk_ant_admin_key(self):
-        self._refuse_add("sk-ant-admin01-" + ("c" * 40), "sk_ant")
+        self._refuse_add(secret_fixtures.anthropic_admin_key(), "sk_ant")
