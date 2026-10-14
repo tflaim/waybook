@@ -1,0 +1,15 @@
+#!/bin/sh
+# Cold start: print the short index, plus matches when WAYBOOK_QUERY is set.
+# Run the installed waybook entry point. Its shebang is the virtualenv interpreter.
+if [ -n "${HOME:-}" ] && [ -x "${HOME}/.local/bin/waybook" ]; then
+  waybook_bin="${HOME}/.local/bin/waybook"
+elif waybook_bin=$(command -v waybook 2>/dev/null); then
+  :
+else
+  echo "waybook is not installed" >&2
+  exit 1
+fi
+if [ -n "${WAYBOOK_QUERY:-}" ]; then
+  exec "$waybook_bin" warm-start --query "$WAYBOOK_QUERY"
+fi
+exec "$waybook_bin" warm-start

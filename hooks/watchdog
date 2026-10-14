@@ -1,0 +1,9 @@
+#!/bin/sh
+# One-shot silence check. Never fails the caller.
+# Prefer the installed entry point so the virtualenv interpreter runs.
+if [ -n "${HOME:-}" ] && [ -x "${HOME}/.local/bin/waybook" ]; then
+  "${HOME}/.local/bin/waybook" watchdog --silence "${WAYBOOK_SILENCE:-20m}"
+elif command -v waybook >/dev/null 2>&1; then
+  waybook watchdog --silence "${WAYBOOK_SILENCE:-20m}"
+fi
+exit 0

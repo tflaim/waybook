@@ -1,0 +1,9 @@
+#!/bin/sh
+# Best-effort flush of .waybook/.pending. Never fails the caller.
+# Prefer the installed entry point so the virtualenv interpreter runs.
+if [ -n "${HOME:-}" ] && [ -x "${HOME}/.local/bin/waybook" ]; then
+  "${HOME}/.local/bin/waybook" flush
+elif command -v waybook >/dev/null 2>&1; then
+  waybook flush
+fi
+exit 0

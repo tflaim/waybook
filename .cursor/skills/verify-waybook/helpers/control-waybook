@@ -1,0 +1,477 @@
+#!/usr/bin/env bash
+# control-waybook — harness for verifying the Waybook CLI the way a user drives it.
+# Invocation examples are in ../SKILL.md. This script never deletes evidence.
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+SKILL_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SKILL_DIR/../../.." && pwd)
+
+STATE_ROOT="${WAYBOOK_VERIFY_STATE_ROOT:-/tmp/waybook-verify}"
+EVIDENCE_ROOT="${WAYBOOK_VERIFY_EVIDENCE_ROOT:-/tmp/waybook-verify-evidence}"
+
+die() {
+  echo "control-waybook: $*" >&2
+  exit 1
+}
+
+require_run_id() {
+  if [ -z "${WAYBOOK_VERIFY_RUN_ID:-}" ]; then
+    die "set WAYBOOK_VERIFY_RUN_ID (or pass --run-id) before driving"
+  fi
+}
+
+# Accept a single path segment. Reject slashes, dots-only names, and anything
+# outside a conservative charset before the id is joined onto a directory.
+run_id_charset_ok() {
+  local id=$1
+  [ -n "$id" ] || return 1
+  case "$id" in
+    *[!A-Za-z0-9._-]*) return 1 ;;
+  esac
+  case "$id" in
+    *[!.]*) ;;
+    *) return 1 ;;
+  esac
+  case "$id" in
+    .*|*..*) return 1 ;;
+  esac
+  return 0
+}
+
+# Sets RUN_DIR to the resolved run directory, or dies. Does not delete anything.
+# A symlink at the run directory is refused so rm cannot follow it outside.
+resolve_run_dir() {
+  require_run_id
+  run_id_charset_ok "$WAYBOOK_VERIFY_RUN_ID" || die "refusing run id ${WAYBOOK_VERIFY_RUN_ID}"
+  local resolved status
+  set +e
+  resolved=$(
+    WAYBOOK_STATE_ROOT="$STATE_ROOT" WAYBOOK_RUN_ID="$WAYBOOK_VERIFY_RUN_ID" python3 - <<'PY'
+import os
+import sys
+
+state = os.environ["WAYBOOK_STATE_ROOT"]
+run_id = os.environ["WAYBOOK_RUN_ID"]
+if (
+    not run_id
+    or os.sep in run_id
+    or (os.altsep and os.altsep in run_id)
+    or run_id in {".", ".."}
+    or set(run_id) <= {"."}
+    or ".." in run_id
+):
+    sys.exit(2)
+parent = os.path.realpath(state) if os.path.lexists(state) else os.path.abspath(state)
+candidate = os.path.normpath(os.path.join(parent, run_id))
+try:
+    inside = os.path.commonpath([parent, candidate]) == parent and candidate != parent
+except ValueError:
+    inside = False
+if not inside:
+    sys.exit(3)
+if os.path.lexists(candidate):
+    if os.path.islink(candidate):
+        sys.exit(4)
+    real = os.path.realpath(candidate)
+    try:
+        real_inside = os.path.commonpath([parent, real]) == parent
+    except ValueError:
+        real_inside = False
+    if not real_inside or real != candidate:
+        sys.exit(4)
+print(candidate)
+PY
+  )
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] || die "refusing run id ${WAYBOOK_VERIFY_RUN_ID}"
+  [ -n "$resolved" ] || die "refusing run id ${WAYBOOK_VERIFY_RUN_ID}"
+  RUN_DIR=$resolved
+}
+
+parse_run_id_flag() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --run-id)
+        [ $# -ge 2 ] || die "--run-id needs a value"
+        WAYBOOK_VERIFY_RUN_ID=$2
+        export WAYBOOK_VERIFY_RUN_ID
+        shift 2
+        ;;
+      --run-id=*)
+        WAYBOOK_VERIFY_RUN_ID=${1#*=}
+        export WAYBOOK_VERIFY_RUN_ID
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  REMAINING_ARGS=("$@")
+}
+
+run_paths() {
+  resolve_run_dir
+  PROJECT_DIR="$RUN_DIR/project"
+  META_FILE="$RUN_DIR/meta.env"
+  # Evidence is named with the same checked id, and cleanup never deletes it.
+  EVIDENCE_DIR="$EVIDENCE_ROOT/$WAYBOOK_VERIFY_RUN_ID"
+}
+
+load_meta() {
+  run_paths
+  [ -f "$META_FILE" ] || die "no launch for run $WAYBOOK_VERIFY_RUN_ID (missing $META_FILE)"
+  # shellcheck disable=SC1090
+  . "$META_FILE"
+}
+
+waybook_env() {
+  export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+  export WAYBOOK_AGENT="${WAYBOOK_AGENT:-verifier}"
+  # Prefer a fixed clock for reproducible ids/timestamps unless the caller overrides.
+  if [ -z "${WAYBOOK_NOW+x}" ]; then
+    export WAYBOOK_NOW=2026-10-13T12:00:00Z
+  fi
+  unset WAYBOOK_ROLE
+}
+
+waybook_cmd() {
+  waybook_env
+  python3 -m waybook "$@"
+}
+
+cmd_launch() {
+  parse_run_id_flag "$@"
+  # bash 3.2 with set -u errors on an empty array; the + form expands nothing.
+  set -- ${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}
+
+  local project_id="verify/demo"
+  local seed=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project-id)
+        project_id=$2
+        shift 2
+        ;;
+      --project-id=*)
+        project_id=${1#*=}
+        shift
+        ;;
+      --seed)
+        seed=1
+        shift
+        ;;
+      *)
+        die "unknown launch arg: $1"
+        ;;
+    esac
+  done
+
+  if [ -z "${WAYBOOK_VERIFY_RUN_ID:-}" ]; then
+    WAYBOOK_VERIFY_RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)-$$
+    export WAYBOOK_VERIFY_RUN_ID
+  fi
+
+  run_paths
+  if [ -d "$RUN_DIR" ]; then
+    die "run $WAYBOOK_VERIFY_RUN_ID already exists at $RUN_DIR; cleanup first or pick a new --run-id"
+  fi
+
+  mkdir -p "$PROJECT_DIR" "$EVIDENCE_DIR"
+  waybook_env
+  (
+    cd "$PROJECT_DIR"
+    waybook_cmd init --project-id "$project_id"
+  )
+
+  if [ "$seed" -eq 1 ]; then
+    (
+      cd "$PROJECT_DIR"
+      waybook_cmd --agent verifier add decisions \
+        --title "Flat files" \
+        --one-liner "No DB" >/dev/null
+      waybook_cmd --agent verifier add failed-attempts \
+        --title "Tried SQLite" \
+        --one-liner "Locking issues" >/dev/null
+      waybook_cmd --agent verifier add open-threads \
+        --title "Wire prune to gh" \
+        --one-liner "Needs auth for PR lookup" >/dev/null
+    )
+  fi
+
+  {
+    echo "WAYBOOK_VERIFY_RUN_ID=$WAYBOOK_VERIFY_RUN_ID"
+    echo "REPO_ROOT=$REPO_ROOT"
+    echo "PROJECT_DIR=$PROJECT_DIR"
+    echo "EVIDENCE_DIR=$EVIDENCE_DIR"
+    echo "PROJECT_ID=$project_id"
+    echo "LAUNCHED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "WAYBOOK_VERSION=$(python3 -c "import sys; sys.path.insert(0, r'$REPO_ROOT'); import waybook; print(waybook.__version__)")"
+  } >"$META_FILE"
+
+  echo "launched run=$WAYBOOK_VERIFY_RUN_ID"
+  echo "project=$PROJECT_DIR"
+  echo "evidence=$EVIDENCE_DIR"
+  echo "export WAYBOOK_VERIFY_RUN_ID=$WAYBOOK_VERIFY_RUN_ID"
+}
+
+cmd_doctor() {
+  parse_run_id_flag "$@"
+  # bash 3.2 with set -u errors on an empty array; the + form expands nothing.
+  set -- ${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}
+  local fail=0
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "doctor: FAIL python3 not on PATH"
+    fail=1
+  else
+    py_ok=$(python3 -c 'import sys; print(int(sys.version_info[:2] >= (3, 11)))')
+    if [ "$py_ok" != "1" ]; then
+      echo "doctor: FAIL need Python 3.11+ (got $(python3 --version 2>&1))"
+      fail=1
+    else
+      echo "doctor: ok python $(python3 --version 2>&1 | awk '{print $2}')"
+    fi
+  fi
+
+  waybook_env
+  if ! python3 -c "import waybook; assert waybook.__version__" >/dev/null 2>&1; then
+    echo "doctor: FAIL cannot import waybook with PYTHONPATH=$REPO_ROOT"
+    fail=1
+  else
+    ver=$(python3 -c "import waybook; print(waybook.__version__)")
+    echo "doctor: ok waybook $ver importable from $REPO_ROOT"
+  fi
+
+  if [ -n "${WAYBOOK_VERIFY_RUN_ID:-}" ]; then
+    run_paths
+  fi
+  if [ -n "${WAYBOOK_VERIFY_RUN_ID:-}" ] && [ -f "$META_FILE" ]; then
+    load_meta
+    if [ ! -d "$PROJECT_DIR/.waybook" ]; then
+      echo "doctor: FAIL missing board at $PROJECT_DIR/.waybook"
+      fail=1
+    else
+      echo "doctor: ok board at $PROJECT_DIR/.waybook"
+    fi
+    if [ ! -d "$EVIDENCE_DIR" ]; then
+      echo "doctor: FAIL evidence dir missing at $EVIDENCE_DIR"
+      fail=1
+    else
+      echo "doctor: ok evidence dir $EVIDENCE_DIR"
+    fi
+    schema=$(python3 -c "import re,pathlib; t=pathlib.Path(r'$PROJECT_DIR/.waybook/config.toml').read_text(); m=re.search(r'schema_version\s*=\s*(\d+)', t); print(m.group(1) if m else 'missing')")
+    if [ "$schema" != "2" ]; then
+      echo "doctor: FAIL expected schema_version 2, got $schema"
+      fail=1
+    else
+      echo "doctor: ok schema_version=$schema"
+    fi
+    if [ "${WAYBOOK_VERSION:-}" != "$ver" ]; then
+      echo "doctor: FAIL launched version ${WAYBOOK_VERSION:-unset} != importable $ver"
+      fail=1
+    else
+      echo "doctor: ok launched version matches importable ($ver)"
+    fi
+    if ! (
+      cd "$PROJECT_DIR"
+      waybook_cmd verify >/dev/null
+    ); then
+      echo "doctor: FAIL waybook verify failed in $PROJECT_DIR"
+      fail=1
+    else
+      echo "doctor: ok waybook verify"
+    fi
+  else
+    echo "doctor: note no active run (import-only check); launch before driving"
+  fi
+
+  [ "$fail" -eq 0 ] || exit 1
+  echo "doctor: READY"
+}
+
+cmd_cli() {
+  parse_run_id_flag "$@"
+  # bash 3.2 with set -u errors on an empty array; the + form expands nothing.
+  set -- ${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
+  [ $# -gt 0 ] || die "usage: control-waybook cli [--run-id ID] -- <waybook args>"
+  load_meta
+  waybook_env
+  (
+    cd "$PROJECT_DIR"
+    waybook_cmd "$@"
+  )
+}
+
+cmd_snapshot() {
+  parse_run_id_flag "$@"
+  # bash 3.2 with set -u errors on an empty array; the + form expands nothing.
+  set -- ${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}
+  local label=${1:-board}
+  load_meta
+  local dest="$EVIDENCE_DIR/$label"
+  mkdir -p "$dest"
+  waybook_env
+  (
+    cd "$PROJECT_DIR"
+    {
+      echo "# waybook list"
+      waybook_cmd list || true
+      echo
+      echo "# waybook verify"
+      waybook_cmd verify || true
+      echo
+      echo "# index.md"
+      if [ -f .waybook/index.md ]; then
+        cat .waybook/index.md
+      else
+        echo "(missing)"
+      fi
+    } >"$dest/cli-state.txt"
+    # Board files are the durable side effect users can open.
+    if [ -d .waybook ]; then
+      cp -a .waybook "$dest/dot-waybook"
+    fi
+  )
+  echo "snapshot written to $dest"
+  echo "cli-state=$dest/cli-state.txt"
+}
+
+cmd_record() {
+  # Record a labeled command transcript under the evidence dir without deleting anything.
+  parse_run_id_flag "$@"
+  # bash 3.2 with set -u errors on an empty array; the + form expands nothing.
+  set -- ${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}
+  local label=${1:-}
+  shift || true
+  if [ "${1:-}" = "--" ]; then
+    shift
+  fi
+  [ -n "$label" ] || die "usage: control-waybook record [--run-id ID] <label> -- <waybook args>"
+  [ $# -gt 0 ] || die "usage: control-waybook record [--run-id ID] <label> -- <waybook args>"
+  load_meta
+  mkdir -p "$EVIDENCE_DIR"
+  local out="$EVIDENCE_DIR/${label}.transcript.txt"
+  local rc_file
+  rc_file=$(mktemp)
+  waybook_env
+  (
+    cd "$PROJECT_DIR"
+    {
+      printf '$ python3 -m waybook'
+      printf ' %q' "$@"
+      printf '\n'
+      set +e
+      waybook_cmd "$@"
+      local rc=$?
+      set -e
+      echo "exit:$rc"
+      echo "$rc" >"$rc_file"
+    } >"$out" 2>&1
+  )
+  local rc
+  rc=$(cat "$rc_file")
+  rm -f "$rc_file"
+  echo "transcript=$out"
+  return "$rc"
+}
+
+cmd_cleanup() {
+  parse_run_id_flag "$@"
+  # bash 3.2 with set -u errors on an empty array; the + form expands nothing.
+  set -- ${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"}
+  # Validate the flag or WAYBOOK_VERIFY_RUN_ID before any stat or delete.
+  run_paths
+  if [ -L "$RUN_DIR" ]; then
+    die "refusing run id ${WAYBOOK_VERIFY_RUN_ID}"
+  fi
+  if [ ! -d "$RUN_DIR" ]; then
+    echo "cleanup: nothing to remove for run $WAYBOOK_VERIFY_RUN_ID"
+    echo "evidence kept at $EVIDENCE_DIR (if present)"
+    return 0
+  fi
+  # Remove only this run's directory, by its basename, after a fresh symlink check.
+  # Never touch EVIDENCE_ROOT contents.
+  local parent id
+  parent=$(dirname "$RUN_DIR")
+  id=$(basename "$RUN_DIR")
+  [ "$id" = "$WAYBOOK_VERIFY_RUN_ID" ] || die "refusing run id ${WAYBOOK_VERIFY_RUN_ID}"
+  (
+    cd -- "$parent" || exit 1
+    [ ! -L "$id" ] || exit 1
+    [ -d "$id" ] || exit 1
+    rm -rf -- "$id"
+  ) || die "refusing run id ${WAYBOOK_VERIFY_RUN_ID}"
+  echo "cleanup: removed $RUN_DIR"
+  if [ -d "$EVIDENCE_DIR" ]; then
+    echo "cleanup: evidence retained at $EVIDENCE_DIR"
+  else
+    echo "cleanup: no evidence dir found at $EVIDENCE_DIR"
+  fi
+}
+
+cmd_paths() {
+  parse_run_id_flag "$@"
+  load_meta
+  echo "run_id=$WAYBOOK_VERIFY_RUN_ID"
+  echo "project=$PROJECT_DIR"
+  echo "evidence=$EVIDENCE_DIR"
+  echo "repo=$REPO_ROOT"
+}
+
+usage() {
+  cat <<'EOF'
+usage: control-waybook <command> [options]
+
+commands:
+  launch [--run-id ID] [--project-id ID] [--seed]
+      Create an isolated project board under /tmp/waybook-verify/<id>/project.
+      Prints export WAYBOOK_VERIFY_RUN_ID=... for subsequent commands.
+  doctor [--run-id ID]
+      Read-only health check (python, import, schema, verify).
+  cli [--run-id ID] -- <waybook args>
+      Run waybook inside the launched project directory.
+  record [--run-id ID] <label> -- <waybook args>
+      Same as cli, and write a transcript under the evidence directory.
+  snapshot [--run-id ID] [label]
+      Copy list/verify/index plus .waybook/ into the evidence directory.
+  paths [--run-id ID]
+      Print project and evidence paths for the active run.
+  cleanup [--run-id ID]
+      Delete the run's project instance. Evidence is never deleted.
+      The id, from the flag or WAYBOOK_VERIFY_RUN_ID, must be one path segment
+      of letters, digits, dots, underscores, and hyphens. Dots-only names,
+      slashes, and a resolved path outside the state root are refused before
+      anything is deleted. A symlink at the run directory is not followed.
+
+env:
+  WAYBOOK_VERIFY_RUN_ID          active run (required after launch)
+  WAYBOOK_VERIFY_STATE_ROOT      default /tmp/waybook-verify
+  WAYBOOK_VERIFY_EVIDENCE_ROOT   default /tmp/waybook-verify-evidence
+  WAYBOOK_AGENT / WAYBOOK_NOW    forwarded to waybook (defaults set by launch/cli)
+EOF
+}
+
+main() {
+  local cmd=${1:-}
+  [ -n "$cmd" ] || { usage; exit 2; }
+  shift || true
+  case "$cmd" in
+    launch) cmd_launch "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    cli) cmd_cli "$@" ;;
+    record) cmd_record "$@" ;;
+    snapshot) cmd_snapshot "$@" ;;
+    paths) cmd_paths "$@" ;;
+    cleanup) cmd_cleanup "$@" ;;
+    -h|--help|help) usage ;;
+    *) die "unknown command: $cmd" ;;
+  esac
+}
+
+main "$@"

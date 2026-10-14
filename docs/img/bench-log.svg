@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="540" viewBox="0 0 720 540" role="img">
+  <title>Closeout loop, as a bench-log page</title>
+  <desc>Read the short index, do the work, write a decision, an open thread, or a failed attempt, and the next session reads the same page.</desc>
+  <rect x="8" y="8" width="704" height="524" rx="16" fill="#f4efe6" stroke="#5e574e" stroke-width="1.5"/>
+  <g fill="none" stroke="#7d766c" stroke-width="1.6">
+    <circle cx="40" cy="130" r="7"/>
+    <circle cx="40" cy="270" r="7"/>
+    <circle cx="40" cy="410" r="7"/>
+  </g>
+  <line x1="72" y1="28" x2="72" y2="512" stroke="#b85c49" stroke-width="1.5"/>
+  <g stroke="#ddd4c6" stroke-width="1">
+    <line x1="96" y1="132" x2="680" y2="132"/>
+    <line x1="96" y1="188" x2="680" y2="188"/>
+    <line x1="96" y1="252" x2="680" y2="252"/>
+    <line x1="96" y1="316" x2="680" y2="316"/>
+    <line x1="96" y1="372" x2="680" y2="372"/>
+    <line x1="96" y1="436" x2="680" y2="436"/>
+    <line x1="96" y1="492" x2="680" y2="492"/>
+  </g>
+  <text x="96" y="68" fill="#5e574e" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="16">Bench log</text>
+  <text x="96" y="122" fill="#8a4032" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">1</text>
+  <text x="136" y="122" fill="#241f1a" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">Read the short index</text>
+  <text x="136" y="178" fill="#3a342e" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="17">titles, status, and one line</text>
+  <text x="96" y="242" fill="#8a4032" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">2</text>
+  <text x="136" y="242" fill="#241f1a" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">Do the work</text>
+  <text x="96" y="306" fill="#8a4032" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">3</text>
+  <text x="136" y="306" fill="#241f1a" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">Write it down before you stop</text>
+  <text x="136" y="362" fill="#3a342e" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="17">a decision, an open thread, or a failed attempt</text>
+  <text x="96" y="426" fill="#8a4032" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">4</text>
+  <text x="136" y="426" fill="#241f1a" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="22">The next session reads this page</text>
+  <text x="136" y="482" fill="#3a342e" font-family="Georgia, Palatino, 'Palatino Linotype', serif" font-size="17">the same index, including what you just wrote</text>
+</svg>
