@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / ".cursor/skills/verify-waybook/helpers/control-waybook"
+HELPER = ROOT / "skills/verify-waybook/helpers/control-waybook"
 _LOCAL = re.compile(r"^\s*local\b(.*)$")
 _ASSIGNED = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)=")
 
@@ -50,7 +50,7 @@ class HarnessSafetyTests(unittest.TestCase):
     def test_local_name_is_not_expanded_on_the_same_line(self):
         """A `local name=… out=$name` line expands out before name is set."""
         roots = [
-            ROOT / ".cursor/skills/verify-waybook",
+            ROOT / "skills/verify-waybook",
             ROOT / "hooks",
         ]
         files = [ROOT / "install.sh"]
@@ -120,6 +120,20 @@ class HarnessSafetyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(marker.read_text(encoding="utf-8"), "keep\n")
         self.assertFalse((outside / "project").exists())
+
+    def test_launch_records_this_checkout_as_repo_root(self):
+        launched = _run(self.state, self.evidence, "launch", "--run-id", "root-run")
+        self.assertEqual(launched.returncode, 0, launched.stderr)
+        recorded = [
+            line
+            for path in (self.state / "root-run").rglob("*")
+            if path.is_file() and path.suffix in {"", ".env"}
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line.startswith("REPO_ROOT=")
+        ]
+        self.assertTrue(recorded, "launch did not record REPO_ROOT")
+        for line in recorded:
+            self.assertEqual(Path(line.split("=", 1)[1]).resolve(), ROOT)
 
     def test_cleanup_removes_only_the_run_directory(self):
         launched = _run(self.state, self.evidence, "launch", "--run-id", "ok-run")

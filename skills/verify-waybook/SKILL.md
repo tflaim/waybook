@@ -14,8 +14,8 @@ Secondary surfaces (do not use as the primary proof path unless the change is MC
 From the repo root:
 
 ```sh
-chmod +x .cursor/skills/verify-waybook/helpers/control-waybook
-export PATH="$PWD/.cursor/skills/verify-waybook/helpers:$PATH"
+chmod +x skills/verify-waybook/helpers/control-waybook
+export PATH="$PWD/skills/verify-waybook/helpers:$PATH"
 
 control-waybook launch --run-id "prove-warm-start" --seed
 export WAYBOOK_VERIFY_RUN_ID=prove-warm-start
@@ -118,7 +118,7 @@ Removes only `/tmp/waybook-verify/<run-id>/` (the instance this run created). Do
 
 ## Helpers
 
-Executable: `.cursor/skills/verify-waybook/helpers/control-waybook`
+Executable: `skills/verify-waybook/helpers/control-waybook`
 
 ```sh
 control-waybook launch [--run-id ID] [--project-id ID] [--seed]
