@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / ".cursor/skills/verify-waybook/helpers/control-waybook"
+HELPER = ROOT / "skills/verify-waybook/helpers/control-waybook"
 _LOCAL = re.compile(r"^\s*local\b(.*)$")
 _ASSIGNED = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)=")
 
@@ -50,7 +50,7 @@ class HarnessSafetyTests(unittest.TestCase):
     def test_local_name_is_not_expanded_on_the_same_line(self):
         """A `local name=… out=$name` line expands out before name is set."""
         roots = [
-            ROOT / ".cursor/skills/verify-waybook",
+            ROOT / "skills/verify-waybook",
             ROOT / "hooks",
         ]
         files = [ROOT / "install.sh"]

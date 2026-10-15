@@ -6,7 +6,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 
 - Launch an isolated board with `control-waybook launch --run-id <id> --seed` (or without `--seed` when a feature says so).
 - Export `WAYBOOK_VERIFY_RUN_ID` to that id.
-- Put `.cursor/skills/verify-waybook/helpers` on `PATH`.
+- Put `skills/verify-waybook/helpers` on `PATH`.
 - Run `control-waybook doctor` and require `doctor: READY`.
 - Never drive a `.waybook/` that this verification run did not create.
 - Evidence goes under `/tmp/waybook-verify-evidence/<run-id>/` and must survive `control-waybook cleanup`.
