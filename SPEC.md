@@ -44,7 +44,7 @@ Coordinator-level config lives in the coordinator project's own `.waybook/config
 ## 4. Entry format
 ```markdown
 ---
-schema_version: 1
+schema_version: 2
 id: dec-20261011-a1b2c3
 section: decisions            # decisions | open-threads | failed-attempts
 title: Use SQLite-free flat files for the ledger
@@ -60,7 +60,7 @@ resolution: null              # merged | closed | explicit
 last_useful_at: null
 usefulness: 0.0               # HIDDEN in V1 output; 0..1; updated by CLI only
 ---
-Body: free markdown. Up to 20000 characters are stored. A longer body is truncated automatically (there is no `--truncate` flag) and ends with a pointer line (`[truncated: omitted N characters]`). The cut backs up to the last newline before the cap when one fits, and an open triple-backtick fence is closed. Why, alternatives, what to check first. There is no cap on the number of links. Links are `commit:<sha>` or `pr:<number>`.
+Body: free markdown. Up to 20000 characters are stored. A longer body is truncated automatically (there is no `--truncate` flag) and ends with a pointer line (`[truncated: omitted N characters]`). The cut backs up to the last newline before the cap when one fits, and an open triple-backtick fence is closed. Why, alternatives, what to check first. There is no cap on the number of links. A link is given as `commit:<sha>` or `pr:<number>` (MCP also takes a `{type, ref}` object) and is stored with this project's id as `repo`. A link can't name another repo: an object with `repo` is rejected E_SCHEMA_INVALID.
 ```
 Append-only semantics: an entry file is never rewritten except through `mark-resolved` (sets `status`, `resolved_at`, `resolution`) and internal `usefulness`/`last_useful_at` bumps. Every mutation appends a line to `writes.jsonl` (`{ts, op, id, prev_hash, hash, digest, content_root}`). `hash` chains the previous hash with `ts`, `op`, `id`, and `digest`. `digest` is the sha256 of the entry file. `content_root` on the latest line is the sha256 of the sorted `id digest` lines for every entry file on the board or in the archive. `waybook verify` recomputes the chain, compares digests to those files, and fails if the tip `content_root` does not match. Corrections are new entries with `supersedes: <id>`.
 
@@ -108,11 +108,13 @@ Exit codes (stderr human message; with `--json`, stderr is `{"error":{"code":"E_
 | 11 | E_INTEGRITY | Hash chain broken at <id>; board modified outside the CLI |
 | 12 | E_LINK_LOOKUP | Could not check PR/commit state (offline or no auth); nothing pruned |
 | 13 | E_SECRET | Refused write: secret pattern <class> |
+| 1 | E_INTERNAL | Internal error: <exception type> (any unexpected failure; the MCP server keeps running) |
 
 ## 6. MCP wrapper
 Thin stdio server; **every write tool shells to / imports the same validation as the CLI** (no second code path). Responses never contain `usefulness`.
-- Read: `board_list`, `board_show`, `board_index` (warm-start text), `board_warm_start(query)`.
-- Write: `board_add`, `board_mark_resolved`, `board_prune` (dry_run default true).
+- Read: `board_list`, `board_show`, `board_index` (regenerates `index.md`, returns `{index}`), `board_warm_start(query, read_only?)` (returns `{text}`). These are the same JSON shapes as `index --json` and `warm-start --json`.
+- Write: `board_add` (body up to 20000 characters, longer is truncated), `board_mark_resolved`, `board_prune` (dry_run default true; the CLI's `prune` defaults to a real prune).
+- Arguments: a missing required argument is E_USAGE. Every boolean takes true/false, "true"/"false", "yes"/"no", "1"/"0" or 1/0; anything else is E_USAGE.
 - Coordinator: `coordinator_read(project_id, reason, section?)`. `reason` is a required non-empty string (min 10 chars). Role comes from the server's launch config (`--role coordinator`), not from tool arguments. Every call appends to the **coordinator's** audit log and a notice line to the target project's audit log.
 - Errors return the same `code` + `message` as the CLI.
 
@@ -139,7 +141,7 @@ Fields for any op that changes state: `op`, `entry_ids`, `changed` (true), `chan
 
 ## 10. Acceptance tests
 1. Append-only enforced: editing an entry via the CLI/MCP fails E_APPEND_ONLY; a hand edit makes `verify` fail E_INTEGRITY.
-2. Schema validation: missing field / bad section rejected E_SCHEMA_INVALID.
+2. Schema validation: bad section or field rejected E_SCHEMA_INVALID; a missing required argument fails E_USAGE (CLI and MCP).
 3. Schema version migration: v1 fixture -> `migrate` -> v2 passes verify; migration note exists; old board refuses writes before migrating.
 4. Prune by resolution: entry with merged PR is archived; entry with open PR and old timestamp is NOT; dry-run changes nothing.
 5. Archive: pruned entry present in `archive/` with `archived_at`, absent from `list`, appears in `list --archived`.

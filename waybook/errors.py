@@ -107,3 +107,8 @@ def secret_refused(pattern_class: str) -> WaybookError:
         f"Refused write: secret pattern {pattern_class}",
         13,
     )
+
+
+def internal(exc: BaseException) -> WaybookError:
+    """Any exception that isn't a WaybookError, on both the CLI and MCP."""
+    return WaybookError("E_INTERNAL", f"Internal error: {type(exc).__name__}", 1)

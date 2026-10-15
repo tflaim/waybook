@@ -585,10 +585,12 @@ def normalize_links(links, project_id: str) -> list:
         elif isinstance(item, dict):
             kind = item.get("type")
             ref = item.get("ref")
-            repo = item.get("repo") or project_id
+            # Links always point at this project; a link can't name another repo.
+            if "repo" in item:
+                raise errors.schema_invalid(SUPPORTED, "links")
             if kind not in ("commit", "pr") or ref in (None, ""):
                 raise errors.schema_invalid(SUPPORTED, "links")
-            out.append({"type": kind, "repo": str(repo), "ref": str(ref)})
+            out.append({"type": kind, "repo": project_id, "ref": str(ref)})
         else:
             raise errors.schema_invalid(SUPPORTED, "links")
     return out
@@ -1567,7 +1569,6 @@ def add_entry(
     if section not in SECTIONS:
         raise errors.schema_invalid(version, "section")
     created_at = now_str()
-    agent = agent or "local"
     body_full = normalize_body(body)
     norm_links = normalize_links(links, cfg["project_id"])
     secret_parts: list[object] = [title, one_liner, body_full, supersedes, agent]
@@ -2293,14 +2294,15 @@ def _warm_start_unlocked(root: Path, query: str | None, read_only: bool = False)
     return "\n".join(parts).rstrip("\n") + "\n"
 
 
-def flush(root: Path, agent: str) -> None:
+def flush(root: Path, agent: str, session_label: str = "session") -> None:
+    """Writes pending notes as one "Unfinished: <session_label>" entry by agent."""
     try:
-        _flush_inner(root, agent)
+        _flush_inner(root, agent, session_label)
     except Exception:
         return
 
 
-def _flush_inner(root: Path, agent: str) -> None:
+def _flush_inner(root: Path, agent: str, session_label: str) -> None:
     pending = board_dir(root) / ".pending"
     if not pending.exists() and not pending.is_symlink():
         return
@@ -2327,11 +2329,10 @@ def _flush_inner(root: Path, agent: str) -> None:
     body = normalize_body("\n".join(chunks))
     if not body.strip():
         return
-    agent = agent or "session"
     add_entry(
         root,
         "open-threads",
-        f"Unfinished: {agent}",
+        f"Unfinished: {session_label}",
         "Unfinished session notes",
         body,
         [],
@@ -2358,13 +2359,13 @@ def silence_exceeded(root: Path, silence: str | None) -> bool:
     return now_dt() - seen >= threshold
 
 
-def watchdog(root: Path, silence: str | None, agent: str) -> bool:
+def watchdog(root: Path, silence: str | None, agent: str, session_label: str = "session") -> bool:
     try:
         if not (board_dir(root) / "config.toml").is_file():
             return False
         if not silence_exceeded(root, silence):
             return False
-        flush(root, agent)
+        flush(root, agent, session_label)
         return True
     except Exception:
         return False
@@ -2391,7 +2392,7 @@ def _audit_cross_miss(root: Path, actor: str, project_id: str, reason: str | Non
 
 def coordinator_read(root: Path, project_id: str, reason: str | None, section: str | None, role: str, agent: str) -> list[Entry]:
     cfg = load_config_raw(root)
-    actor = agent or "local"
+    actor = agent
     allowed = role == "coordinator" and bool(cfg.get("coordinator"))
     if not allowed:
         audit(

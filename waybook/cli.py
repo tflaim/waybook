@@ -7,28 +7,20 @@ import json
 import sys
 from pathlib import Path
 
-from waybook import BINARY_NAME, __version__, errors
+from waybook import BINARY_NAME, __version__, errors, operations
 from waybook.board import (
-    add_entry,
-    coordinator_read,
     flush,
     format_list,
     init_project,
     load_config_raw,
     locate,
-    mark_resolved,
     migrate,
-    prune,
     public_text,
-    select_entries,
-    show_entry,
-    to_public,
     verify,
-    warm_start,
     watchdog,
-    write_index,
 )
 from waybook.mcp_server import serve
+from waybook.operations import Context
 
 
 class Parser(argparse.ArgumentParser):
@@ -154,14 +146,16 @@ def dispatch(rest: list[str], json_out: bool, project: str | None, agent: str | 
     if args.cmd == "flush":
         try:
             root = locate(cwd, project, role, agent or "")
-            flush(root, agent or "session")
+            ctx = Context.build(root, role, agent)
+            flush(root, ctx.agent, ctx.session_label)
         except Exception:
             return 0
         return 0
     if args.cmd == "watchdog":
         try:
             root = locate(cwd, project, role, agent or "")
-            fired = watchdog(root, args.silence, agent or "session")
+            ctx = Context.build(root, role, agent)
+            fired = watchdog(root, args.silence, ctx.agent, ctx.session_label)
         except Exception:
             return 0
         if fired:
@@ -169,7 +163,7 @@ def dispatch(rest: list[str], json_out: bool, project: str | None, agent: str | 
         return 0
     if args.cmd == "mcp":
         root = locate(cwd, project, role, agent or "")
-        serve(root, role, agent or "local")
+        serve(root, role, agent)
         return 0
     if args.cmd == "init":
         root = locate(cwd, project, role, agent or "", for_init=True)
@@ -178,93 +172,77 @@ def dispatch(rest: list[str], json_out: bool, project: str | None, agent: str | 
         return 0
 
     root = locate(cwd, project, role, agent or "")
+    ctx = Context.build(root, role, agent)
     if args.cmd == "add":
         body = None
         if args.body_file:
             body = Path(args.body_file).read_text(encoding="utf-8")
-        entry = add_entry(
-            root,
-            args.section,
-            args.title,
-            args.one_liner,
-            body,
-            args.link,
-            agent or "local",
-            supersedes=args.supersedes,
-        )
-        _emit({"id": entry.id}, json_out, f"added {entry.id}\n")
+        arguments = {
+            "section": args.section,
+            "title": args.title,
+            "one_liner": args.one_liner,
+            "body": body,
+            "links": args.link,
+            "supersedes": args.supersedes,
+        }
+        entry, payload, _ = operations.run("add", arguments, ctx, "cli")
+        _emit(payload, json_out, f"added {entry.id}\n")
         return 0
     if args.cmd == "list":
-        entries = select_entries(root, args.section, args.status, args.archived)
-        payload = {
-            "entries": [to_public(entry, include_body=False) for entry in entries]
-        }
+        arguments = {"section": args.section, "status": args.status, "archived": args.archived}
+        entries, payload, _ = operations.run("list", arguments, ctx, "cli")
         _emit(payload, json_out, format_list(entries, _project_active(root)))
         return 0
     if args.cmd == "show":
-        entry = show_entry(root, args.id)
-        _emit(to_public(entry), json_out, public_text(entry))
+        entry, payload, _ = operations.run("show", {"id": args.id}, ctx, "cli")
+        _emit(payload, json_out, public_text(entry))
         return 0
     if args.cmd == "mark-resolved":
-        entry = mark_resolved(root, args.id, args.resolution, args.note, agent or "local")
-        _emit({"id": entry.id, "status": "resolved"}, json_out, f"resolved {entry.id}\n")
+        arguments = {"id": args.id, "resolution": args.resolution, "note": args.note}
+        entry, payload, _ = operations.run("mark_resolved", arguments, ctx, "cli")
+        _emit(payload, json_out, f"resolved {entry.id}\n")
         return 0
     if args.cmd == "prune":
-        plan = prune(root, args.dry_run, agent or "local")
+        # --dry-run only ever turns a dry run on; leaving it off takes the default.
+        arguments = {"dry_run": True} if args.dry_run else {}
+        plan, payload, resolved = operations.run("prune", arguments, ctx, "cli")
         if json_out:
-            _emit(
-                {
-                    "dry_run": bool(args.dry_run),
-                    "archive": [{"id": entry_id, "reason": reason} for entry_id, reason in plan],
-                },
-                True,
-                "",
-            )
+            _emit(payload, True, "")
         elif not plan:
             sys.stdout.write("nothing to archive\n")
         else:
-            verb = "would archive" if args.dry_run else "archived"
+            verb = "would archive" if resolved["dry_run"] else "archived"
             for entry_id, reason in plan:
                 sys.stdout.write(f"{verb} {entry_id} ({reason})\n")
         return 0
     if args.cmd == "index":
-        text = write_index(root)
-        if args.print or json_out:
-            if json_out:
-                _emit({"index": text}, True, "")
-            else:
-                sys.stdout.write(text)
+        text, payload, _ = operations.run("index", {}, ctx, "cli")
+        if json_out:
+            _emit(payload, True, "")
+        elif args.print:
+            sys.stdout.write(text)
         else:
             sys.stdout.write("updated index\n")
         return 0
     if args.cmd == "warm-start":
-        text = warm_start(root, args.query, agent or "local", read_only=args.read_only)
-        if json_out:
-            _emit({"text": text}, True, "")
-        else:
-            sys.stdout.write(text)
+        arguments = {"query": args.query, "read_only": args.read_only}
+        text, payload, _ = operations.run("warm_start", arguments, ctx, "cli")
+        _emit(payload, json_out, text)
         return 0
     if args.cmd == "verify":
         verify(root)
         _emit({"result": "ok"}, json_out, "ok\n")
         return 0
     if args.cmd == "migrate":
-        outcome = migrate(root, args.to, agent or "local")
+        outcome = migrate(root, args.to, ctx.agent)
         if outcome == "already":
             _emit({"result": "ok", "schema_version": 2}, json_out, "already schema v2\n")
         else:
             _emit({"result": "ok", "schema_version": 2}, json_out, "migrated to schema v2\n")
         return 0
     if args.cmd == "coordinator":
-        entries = coordinator_read(
-            root,
-            args.project_id,
-            args.reason,
-            args.section,
-            role,
-            agent or "local",
-        )
-        payload = {"entries": [to_public(entry) for entry in entries]}
+        arguments = {"project_id": args.project_id, "reason": args.reason, "section": args.section}
+        entries, payload, _ = operations.run("coordinator_read", arguments, ctx, "cli")
         _emit(payload, json_out, format_list(entries, True))
         return 0
     raise errors.usage(f"unknown command {args.cmd}")
@@ -288,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
         json_out, project, agent, role, rest = extract_globals(argv)
         return dispatch(rest, json_out, project, agent, role)
     except errors.WaybookError as err:
+        write_error(err, json_out)
+        return err.exit_code
+    except Exception as exc:
+        err = errors.internal(exc)
         write_error(err, json_out)
         return err.exit_code
 

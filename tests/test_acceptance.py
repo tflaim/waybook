@@ -259,9 +259,10 @@ class AcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(bad_section.returncode, 4, bad_section.stderr)
         self.assertIn("schema v2: section", bad_section.stderr)
+        # A missing argument is a usage error, checked before the schema.
         missing = run(["add", "decisions", "--title", "Only a title"], project)
-        self.assertEqual(missing.returncode, 4, missing.stderr)
-        self.assertIn("schema v2: one_liner", missing.stderr)
+        self.assertEqual(missing.returncode, 2, missing.stderr)
+        self.assertIn("one_liner is required", missing.stderr)
         self.assertEqual(list((project / ".waybook" / "board").rglob("*.md")), [])
 
     def test_03_schema_migration(self):

@@ -116,7 +116,7 @@ Global flags: `--json`, `--version` (print the package version and exit 0), `--p
 
 To correct an entry, add a new one with `--supersedes <id>`. `add`, `flush`, and `mark-resolved --note` refuse text that looks like a secret.
 
-Exit codes: 0 ok, 2 `E_USAGE`, 3 `E_NOT_INITIALIZED`, 4 `E_SCHEMA_INVALID`, 5 `E_SCHEMA_VERSION`, 6 `E_NOT_FOUND`, 7 `E_APPEND_ONLY`, 8 `E_ALREADY_RESOLVED`, 9 `E_ACCESS_DENIED`, 10 `E_REASON_REQUIRED`, 11 `E_INTEGRITY`, 12 `E_LINK_LOOKUP`, 13 `E_SECRET`. With `--json`, the error object is printed on stderr.
+Exit codes: 0 ok, 1 `E_INTERNAL` (unexpected failure), 2 `E_USAGE`, 3 `E_NOT_INITIALIZED`, 4 `E_SCHEMA_INVALID`, 5 `E_SCHEMA_VERSION`, 6 `E_NOT_FOUND`, 7 `E_APPEND_ONLY`, 8 `E_ALREADY_RESOLVED`, 9 `E_ACCESS_DENIED`, 10 `E_REASON_REQUIRED`, 11 `E_INTEGRITY`, 12 `E_LINK_LOOKUP`, 13 `E_SECRET`. With `--json`, the error object is printed on stderr.
 
 ## Limits
 
@@ -147,7 +147,7 @@ These are the caps on one entry. What the product does not do is listed under Kn
 }
 ```
 
-Tools: `board_list`, `board_show`, `board_index`, `board_warm_start` (optional `read_only`; omitted, it writes the same way the CLI default does), `board_add`, `board_mark_resolved`, `board_prune` (`dry_run` defaults to true), and `coordinator_read`. Write tools call the same functions as the CLI.
+Tools: `board_list`, `board_show`, `board_index` (regenerates `index.md` and returns `{"index": ...}`), `board_warm_start` (returns `{"text": ...}`; optional `read_only`; omitted, it writes the same way the CLI default does), `board_add`, `board_mark_resolved`, `board_prune` (`dry_run` defaults to true), and `coordinator_read`. The CLI and the MCP server run every operation through one table in `waybook/operations.py`, so arguments, defaults and errors match. A missing required argument is `E_USAGE`, and so is a boolean that isn't true/false, yes/no or 1/0.
 
 ## Hooks and closeout
 
@@ -157,7 +157,7 @@ The `hooks/` directory has three POSIX shell scripts. Each runs the installed `w
 - `hooks/session-end` runs `waybook flush` and always exits 0.
 - `hooks/watchdog` runs `waybook watchdog --silence "${WAYBOOK_SILENCE:-20m}"` and always exits 0.
 
-`skills/waybook-closeout/SKILL.md` is a closeout checklist: add entries with links, mark finished work resolved, and run `verify`. During the work, an agent can drop notes into `.waybook/.pending/`. `flush` turns them into one `open-threads` entry titled `Unfinished: <agent>` and deletes them.
+`skills/waybook-closeout/SKILL.md` is a closeout checklist: add entries with links, mark finished work resolved, and run `verify`. During the work, an agent can drop notes into `.waybook/.pending/`. `flush` turns them into one `open-threads` entry titled `Unfinished: <agent>` (`Unfinished: session` with no agent, recorded as `local`) and deletes them.
 
 ## Coordinators
 
