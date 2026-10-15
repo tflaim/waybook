@@ -7,18 +7,9 @@ import os
 import sys
 from pathlib import Path
 
-from waybook import MCP_SERVER_NAME, __version__, errors
-from waybook.board import (
-    add_entry,
-    coordinator_read,
-    mark_resolved,
-    prune,
-    to_public,
-    warm_start,
-    write_index,
-    show_entry,
-    select_entries,
-)
+from waybook import MCP_SERVER_NAME, __version__, errors, operations
+from waybook.board import BODY_MAX
+from waybook.operations import Context
 
 PROTOCOL = "2024-11-05"
 
@@ -48,12 +39,15 @@ def _tools() -> list[dict]:
         },
         {
             "name": "board_index",
-            "description": "Return the short warm-start index.",
+            "description": "Regenerate index.md and return the short warm-start index as {index}.",
             "inputSchema": {"type": "object", "properties": {}},
         },
         {
             "name": "board_warm_start",
-            "description": "Return the short index, expanding sections that match query. read_only writes nothing.",
+            "description": (
+                "Return the short index as {text}, expanding sections that match query. "
+                "By default rewrites index.md and bumps usefulness for each match; read_only writes nothing."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -71,8 +65,20 @@ def _tools() -> list[dict]:
                     "section": {"type": "string"},
                     "title": {"type": "string"},
                     "one_liner": {"type": "string"},
-                    "body": {"type": "string"},
-                    "links": {"type": "array"},
+                    "body": {
+                        "type": "string",
+                        "description": (
+                            f"Free markdown. Up to {BODY_MAX} characters are stored; a longer body is "
+                            "truncated and ends with a [truncated: omitted N characters] line."
+                        ),
+                    },
+                    "links": {
+                        "type": "array",
+                        "description": (
+                            "commit:<sha> or pr:<number> strings, or {type, ref} objects. "
+                            "Links always point at this project; an object with repo is rejected."
+                        ),
+                    },
                     "supersedes": {"type": "string"},
                 },
                 "required": ["section", "title", "one_liner"],
@@ -127,98 +133,34 @@ def _fail(err: errors.WaybookError) -> dict:
     }
 
 
+# MCP tool name -> shared operation.
+TOOLS = {
+    "board_list": "list",
+    "board_show": "show",
+    "board_index": "index",
+    "board_warm_start": "warm_start",
+    "board_add": "add",
+    "board_mark_resolved": "mark_resolved",
+    "board_prune": "prune",
+    "coordinator_read": "coordinator_read",
+}
+
+
 def parse_read_only(value: object) -> bool:
-    """Boolean read_only flag. The strings false, 0, and no are false.
-
-    Missing means false. true, 1, and yes are true. Any other value is rejected.
-    """
-    if value is None or value is False:
-        return False
-    if value is True:
-        return True
-    if isinstance(value, str):
-        token = value.strip().lower()
-        if token in {"false", "0", "no"}:
-            return False
-        if token in {"true", "1", "yes"}:
-            return True
-    if isinstance(value, int) and not isinstance(value, bool):
-        if value == 0:
-            return False
-        if value == 1:
-            return True
-    raise errors.usage("read_only must be true or false")
+    """Kept for callers of the old name; every MCP boolean uses parse_bool."""
+    return operations.parse_bool("read_only", value)
 
 
-def _call(name: str, args: dict, root: Path, role: str, agent: str):
-    if name == "board_list":
-        entries = select_entries(
-            root,
-            args.get("section"),
-            args.get("status"),
-            bool(args.get("archived", False)),
-        )
-        payload = {"entries": [to_public(entry, include_body=False) for entry in entries]}
-        return _ok(json.dumps(payload, separators=(",", ":")))
-    if name == "board_show":
-        entry = show_entry(root, args.get("id") or "")
-        return _ok(json.dumps(to_public(entry), separators=(",", ":")))
-    if name == "board_index":
-        return _ok(write_index(root))
-    if name == "board_warm_start":
-        return _ok(
-            warm_start(
-                root,
-                args.get("query"),
-                agent,
-                read_only=parse_read_only(args.get("read_only", False)),
-            )
-        )
-    if name == "board_add":
-        entry = add_entry(
-            root,
-            args.get("section") or "",
-            args.get("title"),
-            args.get("one_liner"),
-            args.get("body"),
-            args.get("links") or [],
-            agent,
-            supersedes=args.get("supersedes"),
-        )
-        return _ok(json.dumps({"id": entry.id}, separators=(",", ":")))
-    if name == "board_mark_resolved":
-        entry = mark_resolved(
-            root,
-            args.get("id") or "",
-            args.get("resolution"),
-            args.get("note"),
-            agent,
-        )
-        return _ok(json.dumps({"id": entry.id, "status": "resolved"}, separators=(",", ":")))
-    if name == "board_prune":
-        dry_run = True if "dry_run" not in args else bool(args.get("dry_run"))
-        plan = prune(root, dry_run, agent)
-        payload = {
-            "dry_run": dry_run,
-            "archive": [{"id": entry_id, "reason": reason} for entry_id, reason in plan],
-        }
-        return _ok(json.dumps(payload, separators=(",", ":")))
-    if name == "coordinator_read":
-        entries = coordinator_read(
-            root,
-            args.get("project_id") or "",
-            args.get("reason"),
-            args.get("section"),
-            role,
-            agent,
-        )
-        payload = {"entries": [to_public(entry) for entry in entries]}
-        return _ok(json.dumps(payload, separators=(",", ":")))
-    raise errors.usage(f"unknown tool {name}")
+def _call(name: str, args: dict, ctx: Context):
+    operation = TOOLS.get(name)
+    if operation is None:
+        raise errors.usage(f"unknown tool {name}")
+    _, payload, _ = operations.run(operation, args, ctx, "mcp")
+    return _ok(json.dumps(payload, separators=(",", ":")))
 
 
-def handle(message: dict, root: Path, role: str, agent: str) -> dict | None:
-    if "id" not in message:
+def handle(message: dict, root: Path, role: str, agent: str | None) -> dict | None:
+    if not isinstance(message, dict) or "id" not in message:
         return None
     method = message.get("method")
     msg_id = message["id"]
@@ -240,10 +182,13 @@ def handle(message: dict, root: Path, role: str, agent: str) -> dict | None:
         return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
     if method == "tools/call":
         try:
-            result = _call(params.get("name") or "", params.get("arguments") or {}, root, role, agent)
+            ctx = Context.build(root, role, agent)
+            result = _call(params.get("name") or "", params.get("arguments") or {}, ctx)
             return {"jsonrpc": "2.0", "id": msg_id, "result": result}
         except errors.WaybookError as err:
             return {"jsonrpc": "2.0", "id": msg_id, "result": _fail(err)}
+        except Exception as exc:
+            return {"jsonrpc": "2.0", "id": msg_id, "result": _fail(errors.internal(exc))}
     return {
         "jsonrpc": "2.0",
         "id": msg_id,
@@ -252,13 +197,17 @@ def handle(message: dict, root: Path, role: str, agent: str) -> dict | None:
 
 
 def _read_message(stream) -> dict | None:
+    """The next JSON message. A line that isn't JSON is skipped."""
     while True:
         line = stream.readline()
         if line == b"":
             return None
         if not line.strip():
             continue
-        return json.loads(line.decode("utf-8"))
+        try:
+            return json.loads(line.decode("utf-8"))
+        except ValueError:
+            continue
 
 
 def _write_message(stream, payload: dict) -> None:
@@ -273,13 +222,22 @@ def _write_message(stream, payload: dict) -> None:
         view = view[written:]
 
 
-def serve(root: Path, role: str, agent: str) -> None:
+def serve(root: Path, role: str, agent: str | None) -> None:
     stdin = sys.stdin.buffer
     stdout = sys.stdout.buffer
     while True:
         message = _read_message(stdin)
         if message is None:
             return
-        response = handle(message, root, role, agent)
+        try:
+            response = handle(message, root, role, agent)
+        except Exception:
+            # Keep serving: one bad request must not end the session.
+            msg_id = message.get("id") if isinstance(message, dict) else None
+            response = None if msg_id is None else {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "error": {"code": -32603, "message": "Internal error"},
+            }
         if response is not None:
             _write_message(stdout, response)
