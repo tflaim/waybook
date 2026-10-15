@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 SKILL_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SKILL_DIR/../../.." && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SKILL_DIR/../.." && pwd)
 
 STATE_ROOT="${WAYBOOK_VERIFY_STATE_ROOT:-/tmp/waybook-verify}"
 EVIDENCE_ROOT="${WAYBOOK_VERIFY_EVIDENCE_ROOT:-/tmp/waybook-verify-evidence}"
