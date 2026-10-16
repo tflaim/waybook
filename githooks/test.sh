@@ -38,6 +38,9 @@ check robot 1 "$AI" 'git commit -q --allow-empty -m x -m "🤖 done"'
 check prose-cursor-com 0 '' 'git commit -q --allow-empty -m "Document cursor.com and claude.com hook docs"'
 check claude-md 0 '' 'git commit -q --allow-empty -m "Link CLAUDE.md to AGENTS.md"'
 check comment-line 0 '' "printf 'Add x\n# Co-authored-by: $CA\n' > ../m && git commit -q --allow-empty --cleanup=strip -F ../m"
+check comment-char 0 '' "printf 'Add y\n; Co-authored-by: $CA\n' > ../m && git -c core.commentChar=';' commit -q --allow-empty --cleanup=strip -F ../m"
+echo 'x: cursoragent@cursor.com' > g; git add g
+check commit-v-comment-char 0 '' 'GIT_EDITOR="sed -i 1s/^/Add-g/" git -c core.commentChar=";" commit -q -v'
 echo 'author: cursoragent@cursor.com' > f; git add f
 check commit-v-diff 0 '' 'GIT_EDITOR="sed -i 1s/^/Add-f/" git commit -q -v'
 
@@ -86,6 +89,25 @@ git push -q -f origin HEAD:tflaim/seal-module
 git fetch -q origin
 echo m > m; git add m; git commit -qm "Add m"
 check merge-main 0 '' 'git merge -q --no-edit origin/main && git push -q origin HEAD:tflaim/seal-module'
+
+# Regression: commits already on another remote branch are still checked when republished.
+(cd "$tmp/other" && git checkout -q -B agent "$good" &&
+  git -c user.name='Cursor Agent' -c user.email=cursoragent@cursor.com commit -q --allow-empty -m agent -m "Co-authored-by: $CA" &&
+  git push -q --no-verify origin HEAD:cursor/agent-1 &&
+  git checkout -q -B junk "$good" && git -c user.name=Bad -c user.email=b@x commit -q --allow-empty -m junk &&
+  git push -q --no-verify origin HEAD:scratch/junk)
+git fetch -q origin
+h=$(git rev-parse --short origin/cursor/agent-1)
+check republish-agent 1 "pre-push: commit $h has author '$CA', must be '$W'." \
+  'git push -q origin origin/cursor/agent-1:refs/heads/tflaim/agent'
+h=$(git rev-parse --short origin/scratch/junk)
+check scratch-only-bad 1 "pre-push: commit $h has author 'Bad <b@x>', must be '$W'." \
+  'git push -q origin origin/scratch/junk:refs/heads/tflaim/junk'
+check could-not-list 1 'pre-push: could not list commits for refs/heads/tflaim/x. Fix: git fetch origin, then push again.' \
+  "echo 'refs/heads/x 2222222222222222222222222222222222222222 refs/heads/tflaim/x 0000000000000000000000000000000000000000' | sh '$hooks/pre-push' origin '$tmp/remote.git'"
+h=$(git rev-parse --short origin/main)
+check no-main-ref-checks-all 1 "pre-push: commit $h has author 'Thomas Flaim <84033778+tflaim@users.noreply.github.com>', must be '$W'." \
+  "git push -q '$tmp/remote.git' HEAD:tflaim/fresh"
 
 echo "githooks: $pass passed, $fail failed"
 [ "$fail" = 0 ]

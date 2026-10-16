@@ -5,7 +5,9 @@ want='Thomas Flaim <tflaim@gmail.com>'
 ai='cursoragent@cursor\.com|^(Co-authored-by|Generated-by|Made-with):|^[A-Za-z][A-Za-z-]*:.*https?://[^ ]*(cursor\.com|claude\.(ai|com))|\]\(https?://[^)]*(cursor\.com|claude\.(ai|com))|Generated with \[?Claude Code|CURSOR_AGENT_PR_BODY|🤖'
 
 # Drop the `commit -v` diff below the scissors line, then comment lines.
-body=$(sed '/^# -* >8 -*$/,$d' "$1" | git stripspace --strip-comments)
+cc=$(git config core.commentChar); case "$cc" in ''|auto) cc='#';; esac
+body=$(awk -v s="$cc ------------------------ >8 ------------------------" '$0 == s {exit} {print}' "$1" |
+  git -c core.commentChar="$cc" stripspace --strip-comments)
 hits=$(printf '%s\n' "$body" | grep -iE "$ai")
 if [ -n "$hits" ]; then
   echo "commit-msg: AI attribution found:" >&2

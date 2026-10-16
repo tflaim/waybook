@@ -1,6 +1,6 @@
 #!/bin/sh
 # House rules: push only tflaim/<slug> branches or tags, never main; every commit not yet on
-# the remote is by Thomas Flaim <tflaim@gmail.com> with no AI trailers (catches --no-verify commits).
+# the remote's main is by Thomas Flaim <tflaim@gmail.com> with no AI trailers (catches --no-verify commits).
 # Install: git config core.hooksPath githooks
 want='Thomas Flaim <tflaim@gmail.com>'
 ai='cursoragent@cursor\.com|^(Co-authored-by|Generated-by|Made-with):|^[A-Za-z][A-Za-z-]*:.*https?://[^ ]*(cursor\.com|claude\.(ai|com))|\]\(https?://[^)]*(cursor\.com|claude\.(ai|com))|Generated with \[?Claude Code|CURSOR_AGENT_PR_BODY|🤖'
@@ -19,10 +19,14 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1;;
   esac
   [ "$local_sha" = "$zero" ] && continue
+  # Exclude only what is already on the remote's main (and this ref's own remote tip); commits that
+  # sit on other remote branches, such as an agent's cursor/* branch, still get checked.
+  base=
+  git rev-parse -q --verify "refs/remotes/$1/main^{commit}" >/dev/null && base="refs/remotes/$1/main"
   if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
-    commits=$(git rev-list "$local_sha" --not "$remote_sha" --remotes) || status=2
+    commits=$(git rev-list "$local_sha" --not "$remote_sha" $base 2>/dev/null) || status=2
   else
-    commits=$(git rev-list "$local_sha" --not --remotes) || status=2
+    commits=$(git rev-list "$local_sha" --not $base 2>/dev/null) || status=2
   fi
   if [ "$status" = 2 ]; then
     echo "pre-push: could not list commits for $remote_ref. Fix: git fetch origin, then push again." >&2
