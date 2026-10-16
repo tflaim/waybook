@@ -1,0 +1,25 @@
+#!/bin/sh
+# House rules: author and committer are Thomas Flaim <tflaim@gmail.com>; no AI trailers or footers.
+# Install: git config core.hooksPath githooks
+want='Thomas Flaim <tflaim@gmail.com>'
+ai='cursoragent@cursor\.com|^(Co-authored-by|Generated-by|Made-with):|^[A-Za-z][A-Za-z-]*:.*https?://[^ ]*(cursor\.com|claude\.(ai|com))|\]\(https?://[^)]*(cursor\.com|claude\.(ai|com))|Generated with \[?Claude Code|CURSOR_AGENT_PR_BODY|🤖'
+
+# Drop the `commit -v` diff below the scissors line, then comment lines.
+cc=$(git config core.commentChar); case "$cc" in ''|auto) cc='#';; esac
+body=$(awk -v s="$cc ------------------------ >8 ------------------------" '$0 == s {exit} {print}' "$1" |
+  git -c core.commentChar="$cc" stripspace --strip-comments)
+hits=$(printf '%s\n' "$body" | grep -iE "$ai")
+if [ -n "$hits" ]; then
+  echo "commit-msg: AI attribution found:" >&2
+  printf '%s\n' "$hits" | sed 's/^/  /' >&2
+  echo "Fix: delete those lines from the message." >&2
+  exit 1
+fi
+for role in AUTHOR COMMITTER; do
+  who=$(git var "GIT_${role}_IDENT" | sed 's/ [0-9]* [-+][0-9]*$//')
+  if [ "$who" != "$want" ]; then
+    echo "commit-msg: $role is '$who', must be '$want'." >&2
+    echo "Fix: git config user.name 'Thomas Flaim' && git config user.email tflaim@gmail.com" >&2
+    exit 1
+  fi
+done
