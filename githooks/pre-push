@@ -1,0 +1,48 @@
+#!/bin/sh
+# House rules: push only tflaim/<slug> branches or tags, never main; every commit not yet on
+# the remote is by Thomas Flaim <tflaim@gmail.com> with no AI trailers (catches --no-verify commits).
+# Install: git config core.hooksPath githooks
+want='Thomas Flaim <tflaim@gmail.com>'
+ai='cursoragent@cursor\.com|^(Co-authored-by|Generated-by|Made-with):|^[A-Za-z][A-Za-z-]*:.*https?://[^ ]*(cursor\.com|claude\.(ai|com))|\]\(https?://[^)]*(cursor\.com|claude\.(ai|com))|Generated with \[?Claude Code|CURSOR_AGENT_PR_BODY|🤖'
+zero=0000000000000000000000000000000000000000
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      echo "pre-push: refusing to push to '${remote_ref#refs/heads/}'. Fix: push a tflaim/<slug> branch and open a PR." >&2
+      exit 1;;
+    refs/heads/tflaim/[a-z0-9]*|refs/tags/*) ;;
+    *)
+      b=${remote_ref#refs/heads/}
+      slug=$(printf '%s' "${b#*/}" | tr 'A-Z/' 'a-z-')
+      echo "pre-push: branch '$b' must be tflaim/<slug>. Fix: git push origin HEAD:tflaim/$slug" >&2
+      exit 1;;
+  esac
+  [ "$local_sha" = "$zero" ] && continue
+  if [ "$remote_sha" != "$zero" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    commits=$(git rev-list "$local_sha" --not "$remote_sha" --remotes) || status=2
+  else
+    commits=$(git rev-list "$local_sha" --not --remotes) || status=2
+  fi
+  if [ "$status" = 2 ]; then
+    echo "pre-push: could not list commits for $remote_ref. Fix: git fetch origin, then push again." >&2
+    exit 1
+  fi
+  for c in $commits; do
+    h=$(git log -1 --format=%h "$c")
+    for role in author:%an:%ae committer:%cn:%ce; do
+      fmt=${role#*:}
+      who=$(git log -1 --format="${fmt%%:*} <${fmt#*:}>" "$c")
+      if [ "$who" != "$want" ]; then
+        echo "pre-push: commit $h has ${role%%:*} '$who', must be '$want'." >&2
+        echo "Fix: git rebase -x 'git commit --amend --no-edit --reset-author' <base>" >&2
+        status=1
+      fi
+    done
+    if git log -1 --format=%B "$c" | grep -qiE "$ai"; then
+      echo "pre-push: commit $h carries AI attribution. Fix: git rebase -i and reword it." >&2
+      status=1
+    fi
+  done
+done
+exit $status
