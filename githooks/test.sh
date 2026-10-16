@@ -111,5 +111,35 @@ h=$(git rev-parse --short origin/main)
 check no-main-ref-checks-all 1 "pre-push: commit $h has author 'Thomas Flaim <84033778+tflaim@users.noreply.github.com>', must be '$W'." \
   "git push -q '$tmp/remote.git' HEAD:tflaim/fresh"
 
+# drop-cursor-trailer.sh runs from the dispatcher directory, beside the co-author hook.
+drive_strip() {
+  d=$(mktemp -d "$tmp/strip.XXXXXX")
+  ln -s "$hooks/../.cursor/drop-cursor-trailer.sh" "$d/commit-msg.cursor.z-house"
+  if [ "$2" != missing ]; then
+    printf '%s\n' '#!/bin/bash' 'CO_AUTHORS=(' \
+      "'Cursor Agent <cursoragent@cursor.com>'" \
+      "'Thomas Flaim <tflaim@gmail.com>'" ')' > "$d/commit-msg.cursor.co-author"
+    if [ "$2" = unreadable ]; then chmod 000 "$d/commit-msg.cursor.co-author"; fi
+  fi
+  cp "$3" "$d/msg"
+  "$d/commit-msg.cursor.z-house" "$d/msg" 2>"$d/err"
+  code=$?
+  if [ "$code" -eq 0 ] && cmp -s "$d/msg" "$4"; then pass=$((pass+1)); else
+    fail=$((fail+1)); printf 'FAIL %s\n  exit %s\n' "$1" "$code"; fi
+}
+cursor_line='Co-authored-by: Cursor Agent <cursoragent@cursor.com>'
+thomas_line='Co-authored-by: Thomas Flaim <tflaim@gmail.com>'
+printf 'Add a\n\n\n%s\n' "$cursor_line" > "$tmp/cursor-in"
+printf 'Add a\n' > "$tmp/stripped"
+drive_strip strip-cursor-agent-co-authors present "$tmp/cursor-in" "$tmp/stripped"
+printf 'Add a\n\n\n%s\n' "$thomas_line" > "$tmp/thomas-in"
+drive_strip strip-thomas-flaim-co-authors present "$tmp/thomas-in" "$tmp/stripped"
+printf 'Add a\n\n\n%s\n' 'Co-authored-by: Pat Cursor Agent <pat@example.com>' > "$tmp/keep-cursor"
+drive_strip keep-someone-with-cursor-agent present "$tmp/keep-cursor" "$tmp/keep-cursor"
+printf 'Add a\n\n\n%s\n' 'Co-authored-by: Pat Thomas Flaim <pat@example.com>' > "$tmp/keep-thomas"
+drive_strip keep-someone-with-thomas-flaim present "$tmp/keep-thomas" "$tmp/keep-thomas"
+drive_strip missing-co-author-byte-identical missing "$tmp/cursor-in" "$tmp/cursor-in"
+drive_strip unreadable-co-author-byte-identical unreadable "$tmp/cursor-in" "$tmp/cursor-in"
+
 echo "githooks: $pass passed, $fail failed"
 [ "$fail" = 0 ]
