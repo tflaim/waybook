@@ -1,6 +1,7 @@
 #!/bin/sh
 # Exercises the hooks with real git in a temp repo. Run: sh githooks/test.sh
 set -u
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 hooks=${HOOKS:-$(cd "$(dirname "$0")" && pwd)}
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
@@ -9,6 +10,7 @@ git init -q -b main "$tmp/w" && cd "$tmp/w"
 git config core.hooksPath "$hooks"
 git config user.name 'Thomas Flaim'; git config user.email tflaim@gmail.com
 git remote add origin "$tmp/remote.git"
+printf '#!/bin/sh\nsed "1s/^/$1/" "$2" > "$2.new" && mv "$2.new" "$2"\n' > "$tmp/editor"; chmod +x "$tmp/editor"
 pass=0; fail=0
 check() { # check <name> <expected-exit> <expected-first-stderr-line> <cmd>
   err=$(sh -c "$4" 2>&1 >/dev/null); code=$?; first=$(printf '%s\n' "$err" | head -n1)
@@ -40,9 +42,9 @@ check claude-md 0 '' 'git commit -q --allow-empty -m "Link CLAUDE.md to AGENTS.m
 check comment-line 0 '' "printf 'Add x\n# Co-authored-by: $CA\n' > ../m && git commit -q --allow-empty --cleanup=strip -F ../m"
 check comment-char 0 '' "printf 'Add y\n; Co-authored-by: $CA\n' > ../m && git -c core.commentChar=';' commit -q --allow-empty --cleanup=strip -F ../m"
 echo 'x: cursoragent@cursor.com' > g; git add g
-check commit-v-comment-char 0 '' 'GIT_EDITOR="sed -i 1s/^/Add-g/" git -c core.commentChar=";" commit -q -v'
+check commit-v-comment-char 0 '' "GIT_EDITOR='$tmp/editor Add-g' git -c core.commentChar=';' commit -q -v"
 echo 'author: cursoragent@cursor.com' > f; git add f
-check commit-v-diff 0 '' 'GIT_EDITOR="sed -i 1s/^/Add-f/" git commit -q -v'
+check commit-v-diff 0 '' "GIT_EDITOR='$tmp/editor Add-f' git commit -q -v"
 
 check push-tflaim 0 '' 'git push -q origin HEAD:tflaim/seal-module'
 check push-main 1 "pre-push: refusing to push to 'main'. Fix: push a tflaim/<slug> branch and open a PR." 'git push -q origin HEAD:main'
