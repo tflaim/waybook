@@ -45,6 +45,20 @@ link_z_house() {
   ln -sfn "$top/.cursor/drop-cursor-trailer.sh" "$d/commit-msg.cursor.z-house"
 }
 
+names='applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg commit-msg post-commit pre-rebase post-checkout post-merge pre-push pre-receive update proc-receive post-receive post-update reference-transaction push-to-checkout pre-auto-gc post-rewrite sendemail-validate fsmonitor-watchman post-index-change'
+
+link_dispatcher() {
+  d=$1
+  [ -d "$d" ] && [ -e "$d/.dispatcher" ] || return 0
+  for name in $names; do
+    [ -f "$top/githooks/$name" ] || continue
+    if [ -e "$d/$name" ] || [ -L "$d/$name" ]; then
+      continue
+    fi
+    ln -s .dispatcher "$d/$name"
+  done
+}
+
 if [ "${1:-}" = --wait-z-house ]; then
   top=$2
   lockdir=$3
@@ -58,7 +72,7 @@ if [ "${1:-}" = --wait-z-house ]; then
     mkdir "$lockdir" 2>/dev/null || exit 0
   fi
   echo $$ > "$lockdir/pid"
-  trap 'rm -rf "$lockdir"' EXIT INT TERM
+  trap 'rm -rf "$lockdir"; exit' EXIT INT TERM
   deadline=$(( $(date +%s) + 300 ))
   while :; do
     dispatcher=$(git config --get core.hooksPath || true)
@@ -71,6 +85,7 @@ if [ "${1:-}" = --wait-z-house ]; then
     fi
     sleep 0.2
   done
+  link_dispatcher "$dispatcher"
   link_z_house "$dispatcher"
   exit 0
 fi
@@ -103,24 +118,15 @@ fi
 mkdir -p "$dest"
 dest=$(CDPATH= cd "$dest" && pwd)
 
-names='applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit prepare-commit-msg commit-msg post-commit pre-rebase post-checkout post-merge pre-push pre-receive update proc-receive post-receive post-update reference-transaction push-to-checkout pre-auto-gc post-rewrite sendemail-validate fsmonitor-watchman post-index-change'
-
 for name in $names; do
   [ -f "$src/$name" ] || continue
   if [ "$src" != "$dest" ]; then
     ln -sfn "$src/$name" "$dest/$name"
   fi
-  if [ -z "$dispatcher" ] || [ ! -d "$dispatcher" ] || [ -e "$dispatcher/$name" ]; then
-    continue
-  fi
-  if [ -L "$dispatcher/commit-msg" ]; then
-    ln -s "$(readlink "$dispatcher/commit-msg")" "$dispatcher/$name"
-  elif [ -e "$dispatcher/.dispatcher" ]; then
-    ln -s .dispatcher "$dispatcher/$name"
-  fi
 done
 
 if [ -n "$dispatcher" ] && [ -d "$dispatcher" ]; then
+  link_dispatcher "$dispatcher"
   link_z_house "$dispatcher"
 else
   key=$(printf '%s' "$top" | cksum | awk '{print $1}')
