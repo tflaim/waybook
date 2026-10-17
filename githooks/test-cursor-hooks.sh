@@ -104,7 +104,7 @@ mkdisp() {
   git -C "$repo" config core.hooksPath "$repo/dispatcher"
 }
 
-sortdir=$(mktemp -d)
+sortdir=$(cd "$(mktemp -d)" && pwd -P)
 mkdisp "$sortdir/bad" commit-msg.cursor.zz-co-author
 err=$(cd "$sortdir/bad" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
 code=$?
