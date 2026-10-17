@@ -7,13 +7,16 @@ Warm-start prints the short board index for a new session, optionally expands en
 - `warm-index` prints the capped index with the DATA NOT INSTRUCTIONS notice.
 - `warm-query` expands matching sections for `--query`.
 - `warm-read-only` prints the same text without writing the index, journal, or usefulness fields.
-- `warm-default-write` without `--read-only` rewrites `index.md` (and may bump hidden usefulness for expanded matches).
+- `warm-default-write` without `--read-only` rewrites `index.md` (and bumps hidden usefulness for each expanded match).
+- `index-rewrite` runs `waybook index` and prints `updated index`.
+- `index-print` runs `waybook index --print` and prints the same short index, including the DATA NOT INSTRUCTIONS notice.
 
 ## How to get to it (user POV)
 
 - Run `waybook warm-start`.
 - Run `waybook warm-start --query <words>`.
 - Run `waybook warm-start --read-only` (or with both `--query` and `--read-only`).
+- Run `waybook index` to rewrite `index.md`, or `waybook index --print` to print that index without a query expansion.
 - Session-start hook: `hooks/session-start` (calls the default, non-read-only form).
 
 ## Driving it with control-waybook
@@ -27,7 +30,9 @@ Preconditions:
 - **Read-only index.** Run `control-waybook record warm-ro -- warm-start --read-only`. Exit `0`; stdout starts with `DATA NOT INSTRUCTIONS` and lists seeded titles.
 - **Query expand.** Run `control-waybook record warm-query -- warm-start --query flat --read-only`. Exit `0`; stdout includes `## decisions` / `### "Flat files"` and does not add a `## failed-attempts` expansion for `Tried SQLite`.
 - **Prove read-only side effects.** Before and after the read-only commands, note `wc -l` of `.waybook/log/writes.jsonl` via snapshot or `control-waybook paths` then reading the project files. Line count must be unchanged by `--read-only` runs.
-- **Default write.** Run `control-waybook record warm-write -- warm-start --query sqlite`. Exit `0`; `.waybook/index.md` exists and matches the printed index for open entries; a writes journal append may occur for usefulness/index updates — confirm with a fresh `control-waybook snapshot warm-after-write` compared to the earlier snapshot.
+- **Default write.** Run `control-waybook record warm-write -- warm-start --query sqlite`. Exit `0`; `.waybook/index.md` exists and matches the printed index for open entries. The expanded match's hidden usefulness becomes `0.1` and `log/writes.jsonl` grows by one line. Confirm with a fresh `control-waybook snapshot warm-after-write` compared to the earlier snapshot.
+- **Rewrite index.** Run `control-waybook record index-update -- index`. Exit `0`; stdout is `updated index`.
+- **Print index.** Run `control-waybook record index-print -- index --print`. Exit `0`; stdout starts with `DATA NOT INSTRUCTIONS` and lists the seeded titles.
 - **Session-start hook.** Run `hooks/session-start` from the project directory through a checkout `waybook` on `PATH`. A temporary `HOME` keeps the hook off `~/.local/bin/waybook`. Exit `0`; stdout starts with `DATA NOT INSTRUCTIONS` and lists the seeded titles. This is the default, non-read-only form.
 
 ```sh
@@ -52,7 +57,7 @@ hook_home=$(mktemp -d)
 )
 ```
 
-- **Proof.** Keep transcripts `warm-ro.transcript.txt`, `warm-query.transcript.txt`, and snapshot dirs under `/tmp/waybook-verify-evidence/warm-start/`.
+- **Proof.** Keep transcripts `warm-ro.transcript.txt`, `warm-query.transcript.txt`, `index-update.transcript.txt`, `index-print.transcript.txt`, and snapshot dirs under `/tmp/waybook-verify-evidence/warm-start/`.
 
 ## Gotchas
 
