@@ -454,6 +454,10 @@ env:
   WAYBOOK_VERIFY_STATE_ROOT      default /tmp/waybook-verify
   WAYBOOK_VERIFY_EVIDENCE_ROOT   default /tmp/waybook-verify-evidence
   WAYBOOK_AGENT / WAYBOOK_NOW    forwarded to waybook (defaults set by launch/cli)
+
+State and evidence stay on /tmp even when TMPDIR is set. On macOS TMPDIR is a
+per-user directory, not /tmp. Pass TMPDIR through only so mktemp has a directory.
+Do not point the state or evidence roots at it.
 EOF
 }
 

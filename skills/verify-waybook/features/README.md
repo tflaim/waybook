@@ -46,3 +46,4 @@ Keep implementation details out of the map. Name only user paths, stable handles
 - [Warm-start](./warm-start.md) covers the short index, query expansion, and read-only vs writing behavior.
 - [Resolve and verify](./resolve-and-verify.md) covers explicit resolution, integrity checks, and dry-run prune of resolved entries.
 - [Flush pending notes](./flush-pending.md) covers filing `.waybook/.pending/` notes into one open thread.
+- [Silence watchdog](./watchdog.md) covers the one-shot silence check and the `hooks/watchdog` entry point.

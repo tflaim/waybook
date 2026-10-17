@@ -55,3 +55,4 @@ cwd=$(mktemp -d)
 - `--project` init of a different directory is denied when the cwd is already a Waybook project. Run that entry point from a directory with no board. `control-waybook cli` always starts in the launched board.
 - `project_id` must look like a real `owner/name` if later proofs use `--link pr:N`.
 - Do not initialize inside the waybook repo checkout's own tree for verification; use the helper's disposable project directory.
+- On macOS, `/tmp` is `/private/tmp`. The `initialized` line prints the real path (`/private/tmp/waybook-verify/...`) and `project=` prints `/tmp/waybook-verify/...`. Treat them as the same directory; do not fail the proof because the strings differ.

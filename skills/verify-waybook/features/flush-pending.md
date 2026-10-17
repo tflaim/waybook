@@ -1,6 +1,6 @@
 # Flush pending notes
 
-Flush turns notes left in `.waybook/.pending/` into one `open-threads` entry titled `Unfinished: <agent>` and deletes the pending files. It is the session-end safety net.
+Flush turns notes left in `.waybook/.pending/` into one `open-threads` entry and deletes the pending files. The title is `Unfinished: <agent>` when an agent is set, and `Unfinished: session` when it is not. It is the session-end safety net.
 
 ## Sub-features
 
@@ -8,6 +8,7 @@ Flush turns notes left in `.waybook/.pending/` into one `open-threads` entry tit
 - `flush-file` creates one open thread from pending note text.
 - `flush-clears-pending` removes the filed pending files after success.
 - `flush-exit-zero` exits `0` even when used as a best-effort hook.
+- `flush-no-agent` with no agent files `Unfinished: session` and records `source_agent: local`.
 
 ## How to get to it (user POV)
 
@@ -37,6 +38,23 @@ echo "still wiring prune" > "$project/.waybook/.pending/note.txt"
 - **Flush note.** Run `control-waybook record flush-note -- flush`. Exit `0`.
 - **Inspect thread.** Run `control-waybook record list-unfinished -- list --section open-threads`. Exit `0`; a row titled `Unfinished: verifier` is present. `show` that id includes the pending note text in the body.
 - **Pending cleared.** Confirm `.waybook/.pending/` no longer contains `note.txt` (only keep files like `.keep` if present).
+- **Show quotes the title.** `show` of that id includes the pending note in the body. The title contains a colon, so the front-matter line is `title: "Unfinished: verifier"`, not an unquoted `title: Unfinished: verifier`. The list row stays unquoted.
+- **No agent.** The helper always sets `WAYBOOK_AGENT=verifier`, so it cannot prove the unset-agent title. Stage a different note, then run `waybook flush` from the project with `WAYBOOK_AGENT` unset. Exit `0`. The new row is titled `Unfinished: session`, `show` has `source_agent: local` and `title: "Unfinished: session"`, and the pending file is gone.
+
+```sh
+project=$(control-waybook paths | awk -F= '/^project=/{print $2}')
+repo=$(control-waybook paths | awk -F= '/^repo=/{print $2}')
+if [ -z "$project" ] || [ -z "$repo" ]; then
+  echo "control-waybook paths returned an empty path" >&2
+  exit 1
+fi
+echo "no agent note" > "$project/.waybook/.pending/no-agent.txt"
+(
+  cd "$project"
+  env -u WAYBOOK_AGENT WAYBOOK_NOW=2026-10-13T12:00:00Z PYTHONPATH="$repo${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -m waybook flush
+)
+```
 - **Session-end hook.** Stage a different note, then run `hooks/session-end` against this checkout (a temporary `HOME` avoids `~/.local/bin/waybook`). Exit `0`. A new `Unfinished: verifier` row contains the hook note, and the pending file is gone.
 
 ```sh
@@ -67,6 +85,6 @@ hook_home=$(mktemp -d)
 ## Gotchas
 
 - `flush` always exits `0` by design (including many failure modes). Proof requires checking the board side effect, not only the exit code.
-- The unfinished title uses the agent name (`WAYBOOK_AGENT` / `--agent`); the helper default is `verifier`.
+- With an agent set, the unfinished title uses that name (`Unfinished: verifier` under the helper). With no agent, the title is `Unfinished: session` and `source_agent` is `local`. The helper's default fills `WAYBOOK_AGENT`, so the no-agent path is the direct `python3 -m waybook flush` above.
 - Proving `hooks/session-end` is a separate entry point from `waybook flush`; do not mark the hook verified by only running the CLI command.
 - Secret-like text in pending notes is refused on write paths that scan content; use ordinary prose in fixtures.

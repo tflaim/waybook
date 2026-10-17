@@ -1,6 +1,6 @@
 ---
 name: verify-waybook
-description: "Verify Waybook (CLI board for decisions, open threads, failed attempts) by launching an isolated project board, driving real CLI commands, and capturing transcripts plus on-disk board state. Use when proving Waybook behavior, regression-checking CLI/MCP-adjacent flows, or after changing init/add/list/show/warm-start/resolve/verify/flush."
+description: "Verify Waybook (CLI board for decisions, open threads, failed attempts) by launching an isolated project board, driving real CLI commands, and capturing transcripts plus on-disk board state. Use when proving Waybook behavior, regression-checking CLI/MCP-adjacent flows, or after changing init/add/list/show/index/warm-start/resolve/verify/flush/watchdog."
 ---
 
 # Verify Waybook
@@ -15,7 +15,11 @@ From the repo root:
 
 ```sh
 chmod +x skills/verify-waybook/helpers/control-waybook
-export PATH="$PWD/skills/verify-waybook/helpers:$PATH"
+# Doctor requires python3 3.11+. On this Mac, /usr/bin/python3 is 3.9 and fails
+# that check, so Homebrew's python3 has to come first. Do not install a runtime
+# when this check already passes.
+export PATH="$PWD/skills/verify-waybook/helpers:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)'
 
 control-waybook launch --run-id "prove-warm-start" --seed
 export WAYBOOK_VERIFY_RUN_ID=prove-warm-start
@@ -36,6 +40,10 @@ What launch does:
 
 **Isolation:** Every run uses its own project directory. Concurrent runs are safe if they use different `WAYBOOK_VERIFY_RUN_ID` values. Do **not** drive the developer's real project `.waybook/` or any board you did not launch. Refusing a shared instance is correct.
 
+**Clean shell.** Start from `env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}"`. Pass `TMPDIR` through so `mktemp` in the feature recipes has a directory. The one `WAYBOOK_*` you export yourself is `WAYBOOK_VERIFY_RUN_ID`: launch prints it, and the launch block above exports that line before doctor and the feature recipes. Do not export any other `WAYBOOK_*` or any `HANKO_*`. The helper sets `WAYBOOK_AGENT` and `WAYBOOK_NOW`.
+
+**State paths stay on `/tmp`.** Instances live at `/tmp/waybook-verify/<run-id>/` and evidence at `/tmp/waybook-verify-evidence/<run-id>/`. Do not point `WAYBOOK_VERIFY_STATE_ROOT` or `WAYBOOK_VERIFY_EVIDENCE_ROOT` at `$TMPDIR`. On macOS `$TMPDIR` is a per-user directory, not `/tmp`. `/tmp` is a symlink to `/private/tmp`, so the `initialized` line can show `/private/tmp/...` while `project=` shows `/tmp/...`. Those strings name the same directory.
+
 **Install note:** `./install.sh` needs `python3-venv`/`ensurepip`. Verification does not use it; it uses `python3 -m waybook` with `PYTHONPATH=<repo>` as documented in the README.
 
 ## Doctor
@@ -46,7 +54,7 @@ control-waybook doctor --run-id "$WAYBOOK_VERIFY_RUN_ID"
 
 Read-only checks:
 
-- `python3` is 3.11+
+- `python3` is 3.11+ (a `Python 3.9` failure means `/usr/bin` is ahead of `/opt/homebrew/bin`; fix `PATH` and run doctor again)
 - `waybook` imports from this checkout and version matches the launch record
 - the run's `.waybook/` exists with `schema_version = 2`
 - `waybook verify` exits 0 in that project
@@ -64,9 +72,11 @@ control-waybook cli -- --json list --section decisions
 control-waybook cli -- add decisions --title "T" --one-liner "L"
 control-waybook cli -- show <id>
 control-waybook cli -- warm-start --query flat --read-only
+control-waybook cli -- index
 control-waybook cli -- mark-resolved <id> --resolution explicit
 control-waybook cli -- verify
 control-waybook cli -- flush
+control-waybook cli -- watchdog --silence 0s
 ```
 
 Stable handles (prefer these over scraping markdown files first):
@@ -74,7 +84,7 @@ Stable handles (prefer these over scraping markdown files first):
 | Handle | Meaning |
 | --- | --- |
 | Exit code `0` | success |
-| Exit codes `2`–`13` | documented `E_*` failures (see README) |
+| Exit codes `1`–`13` | documented `E_*` failures (see README). `1` is `E_INTERNAL` |
 | `--json` stdout | machine-readable payloads (`{"id":...}`, `{"entries":[...]}`, `{"result":"ok"}`) |
 | Human stdout | `added <id>`, `resolved <id>`, `ok`, list table, warm-start index text |
 | `.waybook/board/<section>/*.md` | persisted entry files (mode `0444`) |
