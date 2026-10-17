@@ -77,6 +77,14 @@ fi
 
 top=$(git rev-parse --show-toplevel)
 cd "$top"
+name=$(git config --get user.name || true)
+email=$(git config --get user.email || true)
+if [ -z "$name" ] || [ "$name" = 'Cursor Agent' ]; then
+  git config user.name 'Thomas Flaim'
+fi
+if [ -z "$email" ] || [ "$email" = 'cursoragent@cursor.com' ]; then
+  git config user.email 'tflaim@gmail.com'
+fi
 src=$(CDPATH= cd "$top/githooks" && pwd)
 gitdir=$(git rev-parse --git-dir)
 case $gitdir in
@@ -119,5 +127,9 @@ else
   lockdir=/tmp/install-githooks-z-house.$key.lock
   log=/tmp/install-githooks-z-house.$key.log
   self=$(CDPATH= cd "$(dirname "$0")" && pwd)/$(basename "$0")
-  (nohup setsid sh "$self" --wait-z-house "$top" "$lockdir" >>"$log" 2>&1 </dev/null &)
+  if command -v setsid >/dev/null 2>&1; then
+    (nohup setsid sh "$self" --wait-z-house "$top" "$lockdir" >>"$log" 2>&1 </dev/null &)
+  else
+    (nohup sh "$self" --wait-z-house "$top" "$lockdir" >>"$log" 2>&1 </dev/null &)
+  fi
 fi

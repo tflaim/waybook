@@ -38,8 +38,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       fmt=${role#*:}
       who=$(git log -1 --format="${fmt%%:*} <${fmt#*:}>" "$c")
       if [ "$who" != "$want" ]; then
-        echo "pre-push: commit $h has ${role%%:*} '$who', must be '$want'." >&2
-        echo "Fix: git rebase -x 'git commit --amend --no-edit --reset-author' <base>" >&2
+        echo "pre-push: commit $h has ${role%%:*} '$who', must be '$want'. Fix: git rebase -x 'git commit --amend --no-edit --reset-author' <base>" >&2
         status=1
       fi
     done
