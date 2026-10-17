@@ -20,6 +20,7 @@ check() { # check <name> <expected-exit> <expected-first-stderr-line> <cmd>
 W='Thomas Flaim <tflaim@gmail.com>'
 AI='commit-msg: AI attribution found:'
 CA='Cursor Agent <cursoragent@cursor.com>'
+IDFIX="Fix: git rebase -x 'git commit --amend --no-edit --reset-author' <base>"
 bad() { git commit -q --no-verify --allow-empty "$@"; git rev-parse --short HEAD; }
 
 echo a > a; git add a
@@ -63,12 +64,24 @@ check tag-good 0 '' 'git push -q origin v1'
 
 good=$(git rev-parse HEAD)
 h=$(bad -m x --author="$CA")
-check no-verify-author 1 "pre-push: commit $h has author '$CA', must be '$W'." 'git push -q origin HEAD:tflaim/seal-module'
+check no-verify-author 1 "pre-push: commit $h has author '$CA', must be '$W'. $IDFIX" 'git push -q origin HEAD:tflaim/seal-module'
 git tag v2
-check tag-bad-commit 1 "pre-push: commit $h has author '$CA', must be '$W'." 'git push -q origin v2'
+check tag-bad-commit 1 "pre-push: commit $h has author '$CA', must be '$W'. $IDFIX" 'git push -q origin v2'
 git reset -q --hard "$good"
 h=$(bad -m x -m "Co-authored-by: $W")
 check no-verify-trailer 1 "pre-push: commit $h carries AI attribution. Fix: git rebase -i and reword it." 'git push -q origin HEAD:tflaim/seal-module'
+git reset -q --hard "$good"
+h=$(GIT_COMMITTER_NAME='Cursor Agent' GIT_COMMITTER_EMAIL=cursoragent@cursor.com git commit -q --no-verify --allow-empty -m x && git rev-parse --short HEAD)
+check cursor-committer 1 "pre-push: commit $h has committer '$CA', must be '$W'. $IDFIX" 'git push -q origin HEAD:tflaim/seal-module'
+git reset -q --hard "$good"
+GIT_AUTHOR_NAME='Thomas Flaim' GIT_AUTHOR_EMAIL=tflaim@gmail.com \
+  GIT_COMMITTER_NAME='Thomas Flaim' GIT_COMMITTER_EMAIL=tflaim@gmail.com \
+  git commit -q --allow-empty -m thomas
+ha=$(git log -1 --format='%an <%ae>')
+hc=$(git log -1 --format='%cn <%ce>')
+err=$(git push -q origin HEAD:tflaim/thomas-ok 2>&1 >/dev/null); code=$?
+if [ "$code" = 0 ] && [ "$err" = "" ] && [ "$ha" = "$W" ] && [ "$hc" = "$W" ]; then pass=$((pass+1)); else
+  fail=$((fail+1)); printf 'FAIL thomas-thomas\n  want 0 %s %s\n  got  %s [%s] %s %s\n' "$W" "$W" "$code" "$err" "$ha" "$hc"; fi
 git reset -q --hard "$good"
 
 # Regression: remote tip unknown locally (force-push over someone else's commit) must not fail open.
@@ -76,9 +89,9 @@ git clone -q "$tmp/remote.git" "$tmp/other"
 (cd "$tmp/other" && git checkout -q -b w origin/tflaim/seal-module && git -c user.name=Other -c user.email=o@x commit -q --allow-empty -m other &&
   git push -q --no-verify origin HEAD:tflaim/seal-module)
 h=$(bad -m x --author='Bad <b@x>')
-check force-unknown-remote 1 "pre-push: commit $h has author 'Bad <b@x>', must be '$W'." \
+check force-unknown-remote 1 "pre-push: commit $h has author 'Bad <b@x>', must be '$W'. $IDFIX" \
   'git push -q -f origin HEAD:tflaim/seal-module'
-check unknown-remote-sha 1 "pre-push: commit $h has author 'Bad <b@x>', must be '$W'." \
+check unknown-remote-sha 1 "pre-push: commit $h has author 'Bad <b@x>', must be '$W'. $IDFIX" \
   "echo 'refs/heads/x $(git rev-parse HEAD) refs/heads/tflaim/x 1111111111111111111111111111111111111111' | sh '$hooks/pre-push' origin '$tmp/remote.git'"
 git reset -q --hard "$good"
 git push -q -f origin HEAD:tflaim/seal-module
@@ -100,16 +113,235 @@ check merge-main 0 '' 'git merge -q --no-edit origin/main && git push -q origin 
   git push -q --no-verify origin HEAD:scratch/junk)
 git fetch -q origin
 h=$(git rev-parse --short origin/cursor/agent-1)
-check republish-agent 1 "pre-push: commit $h has author '$CA', must be '$W'." \
+check republish-agent 1 "pre-push: commit $h has author '$CA', must be '$W'. $IDFIX" \
   'git push -q origin origin/cursor/agent-1:refs/heads/tflaim/agent'
 h=$(git rev-parse --short origin/scratch/junk)
-check scratch-only-bad 1 "pre-push: commit $h has author 'Bad <b@x>', must be '$W'." \
+check scratch-only-bad 1 "pre-push: commit $h has author 'Bad <b@x>', must be '$W'. $IDFIX" \
   'git push -q origin origin/scratch/junk:refs/heads/tflaim/junk'
 check could-not-list 1 'pre-push: could not list commits for refs/heads/tflaim/x. Fix: git fetch origin, then push again.' \
   "echo 'refs/heads/x 2222222222222222222222222222222222222222 refs/heads/tflaim/x 0000000000000000000000000000000000000000' | sh '$hooks/pre-push' origin '$tmp/remote.git'"
 h=$(git rev-parse --short origin/main)
-check no-main-ref-checks-all 1 "pre-push: commit $h has author 'Thomas Flaim <84033778+tflaim@users.noreply.github.com>', must be '$W'." \
+check no-main-ref-checks-all 1 "pre-push: commit $h has author 'Thomas Flaim <84033778+tflaim@users.noreply.github.com>', must be '$W'. $IDFIX" \
   "git push -q '$tmp/remote.git' HEAD:tflaim/fresh"
+
+# drop-cursor-trailer.sh runs from the dispatcher directory, beside the co-author hook.
+drive_strip() {
+  d=$(mktemp -d "$tmp/strip.XXXXXX")
+  ln -s "$hooks/../.cursor/drop-cursor-trailer.sh" "$d/commit-msg.cursor.z-house"
+  if [ "$2" != missing ]; then
+    printf '%s\n' '#!/bin/bash' 'CO_AUTHORS=(' \
+      "'Cursor Agent <cursoragent@cursor.com>'" \
+      "'Thomas Flaim <tflaim@gmail.com>'" ')' > "$d/commit-msg.cursor.co-author"
+    if [ "$2" = unreadable ]; then chmod 000 "$d/commit-msg.cursor.co-author"; fi
+  fi
+  cp "$3" "$d/msg"
+  "$d/commit-msg.cursor.z-house" "$d/msg" 2>"$d/err"
+  code=$?
+  if [ "$code" -eq 0 ] && cmp -s "$d/msg" "$4"; then pass=$((pass+1)); else
+    fail=$((fail+1)); printf 'FAIL %s\n  exit %s\n' "$1" "$code"; fi
+}
+cursor_line='Co-authored-by: Cursor Agent <cursoragent@cursor.com>'
+thomas_line='Co-authored-by: Thomas Flaim <tflaim@gmail.com>'
+printf 'Add a\n\n\n%s\n' "$cursor_line" > "$tmp/cursor-in"
+printf 'Add a\n' > "$tmp/stripped"
+drive_strip strip-cursor-agent-co-authors present "$tmp/cursor-in" "$tmp/stripped"
+printf 'Add a\n\n\n%s\n' "$thomas_line" > "$tmp/thomas-in"
+drive_strip strip-thomas-flaim-co-authors present "$tmp/thomas-in" "$tmp/stripped"
+printf 'Add a\n\n\n%s\n' 'Co-authored-by: Pat Cursor Agent <pat@example.com>' > "$tmp/keep-cursor"
+drive_strip keep-someone-with-cursor-agent present "$tmp/keep-cursor" "$tmp/keep-cursor"
+printf 'Add a\n\n\n%s\n' 'Co-authored-by: Pat Thomas Flaim <pat@example.com>' > "$tmp/keep-thomas"
+drive_strip keep-someone-with-thomas-flaim present "$tmp/keep-thomas" "$tmp/keep-thomas"
+drive_strip missing-co-author-byte-identical missing "$tmp/cursor-in" "$tmp/cursor-in"
+drive_strip unreadable-co-author-byte-identical unreadable "$tmp/cursor-in" "$tmp/cursor-in"
+
+# start runs before the dispatcher directory exists; a detached waiter links z-house later.
+root=$(CDPATH= cd "$hooks/.." && pwd)
+late_top() {
+  repo=$1
+  git init -q -b main "$repo"
+  mkdir -p "$repo/.cursor" "$repo/githooks"
+  cp "$root/.cursor/install-githooks.sh" "$root/.cursor/drop-cursor-trailer.sh" "$repo/.cursor/"
+  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$repo/githooks/"
+  chmod +x "$repo/.cursor/install-githooks.sh" "$repo/.cursor/drop-cursor-trailer.sh" \
+    "$repo/githooks/commit-msg" "$repo/githooks/pre-push"
+  top=$(git -C "$repo" rev-parse --show-toplevel)
+  key=$(printf '%s' "$top" | cksum | awk '{print $1}')
+  log=/tmp/install-githooks-z-house.$key.log
+  lockdir=/tmp/install-githooks-z-house.$key.lock
+  rm -rf "$lockdir"
+  rm -f "$log"
+}
+late_stop() {
+  if [ -f "$lockdir/pid" ]; then
+    kill "$(cat "$lockdir/pid")" 2>/dev/null || true
+  fi
+  rm -rf "$lockdir"
+  rm -f "$log"
+}
+wait_link() {
+  i=0
+  link=
+  while [ "$i" -lt 40 ]; do
+    link=$(readlink "$top/dispatcher/commit-msg.cursor.z-house" 2>/dev/null || true)
+    if [ "$link" = "$top/.cursor/drop-cursor-trailer.sh" ]; then
+      return
+    fi
+    link=
+    sleep 0.2
+    i=$((i+1))
+  done
+}
+
+latedir=$(mktemp -d "$tmp/late.XXXXXX")
+late_top "$latedir/unset"
+t0=$(date +%s)
+err=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code=$?
+err2=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code2=$?
+t1=$(date +%s)
+elapsed=$((t1 - t0))
+absent=0
+[ ! -d "$top/dispatcher" ] && absent=1
+sleep 1
+git -C "$top" config core.hooksPath "$top/dispatcher"
+mkdir -p "$top/stage"
+printf '#!/bin/sh\nexit 0\n' > "$top/stage/commit-msg.cursor.co-author"
+chmod +x "$top/stage/commit-msg.cursor.co-author"
+mv "$top/stage" "$top/dispatcher"
+wait_link
+if [ "$code" -eq 0 ] && [ "$code2" -eq 0 ] && [ "$err" = "" ] && [ "$err2" = "" ] \
+  && [ "$absent" -eq 1 ] && [ "$elapsed" -le 3 ] \
+  && [ "$link" = "$top/.cursor/drop-cursor-trailer.sh" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-link-unset\n  code %s %s err [%s] [%s] absent %s elapsed %s link %s\n' \
+    "$code" "$code2" "$err" "$err2" "$absent" "$elapsed" "$link"
+fi
+late_stop
+
+late_top "$latedir/missing"
+git -C "$top" config core.hooksPath "$top/dispatcher"
+t0=$(date +%s)
+err=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code=$?
+t1=$(date +%s)
+elapsed=$((t1 - t0))
+absent=0
+[ ! -d "$top/dispatcher" ] && absent=1
+sleep 1
+mkdir -p "$top/stage"
+printf '#!/bin/sh\nexit 0\n' > "$top/stage/commit-msg.cursor.co-author"
+chmod +x "$top/stage/commit-msg.cursor.co-author"
+mv "$top/stage" "$top/dispatcher"
+wait_link
+if [ "$code" -eq 0 ] && [ "$err" = "" ] && [ "$absent" -eq 1 ] && [ "$elapsed" -le 2 ] \
+  && [ "$link" = "$top/.cursor/drop-cursor-trailer.sh" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-link-missing-dir\n  code %s err [%s] absent %s elapsed %s link %s\n' \
+    "$code" "$err" "$absent" "$elapsed" "$link"
+fi
+late_stop
+
+late_top "$latedir/bad"
+git -C "$top" config core.hooksPath "$top/dispatcher"
+err=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code=$?
+sleep 1
+mkdir -p "$top/stage"
+printf '#!/bin/sh\nexit 0\n' > "$top/stage/commit-msg.cursor.zz-co-author"
+chmod +x "$top/stage/commit-msg.cursor.zz-co-author"
+mv "$top/stage" "$top/dispatcher"
+want='install-githooks: commit-msg.cursor.z-house sorts before commit-msg.cursor.zz-co-author'
+i=0
+logged=0
+while [ "$i" -lt 40 ]; do
+  if [ -f "$log" ] && grep -qx "$want" "$log"; then
+    logged=1
+    break
+  fi
+  sleep 0.2
+  i=$((i+1))
+done
+if [ "$code" -eq 0 ] && [ "$err" = "" ] && [ "$logged" -eq 1 ] \
+  && [ ! -e "$top/dispatcher/commit-msg.cursor.z-house" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-sort-fail\n  code %s err [%s] logged %s\n' "$code" "$err" "$logged"
+  cat "$log" 2>/dev/null || true
+fi
+late_stop
+
+late_top "$latedir/nosetsid"
+git -C "$top" config core.hooksPath "$top/dispatcher"
+bindir=$(mktemp -d)
+for b in sh bash git nohup mkdir ln rm basename dirname date sleep cksum awk mktemp cat tr; do
+  ln -s "$(command -v "$b")" "$bindir/$b"
+done
+want=$top/.cursor/drop-cursor-trailer.sh
+found=$(PATH="$bindir" command -v setsid 2>/dev/null || true)
+t0=$(date +%s)
+err=$(cd "$top" && PATH="$bindir" sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code=$?
+t1=$(date +%s)
+elapsed=$((t1 - t0))
+absent=0
+[ ! -d "$top/dispatcher" ] && absent=1
+sleep 1
+mkdir -p "$top/dispatcher"
+wait_link
+if [ "$found" = "" ] && [ "$code" -eq 0 ] && [ "$err" = "" ] && [ "$absent" -eq 1 ] \
+  && [ "$elapsed" -le 2 ] && [ "$link" = "$want" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-link-no-setsid\n  found [%s] code %s err [%s] absent %s elapsed %s link %s want %s\n' \
+    "$found" "$code" "$err" "$absent" "$elapsed" "$link" "$want"
+fi
+late_stop
+rm -rf "$bindir"
+
+id_repo() {
+  repo=$1
+  git init -q -b main "$repo"
+  mkdir -p "$repo/.cursor" "$repo/githooks" "$repo/dispatcher"
+  cp "$root/.cursor/install-githooks.sh" "$root/.cursor/drop-cursor-trailer.sh" "$repo/.cursor/"
+  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$repo/githooks/"
+  chmod +x "$repo/.cursor/install-githooks.sh" "$repo/.cursor/drop-cursor-trailer.sh" \
+    "$repo/githooks/commit-msg" "$repo/githooks/pre-push"
+  git -C "$repo" config core.hooksPath "$repo/dispatcher"
+}
+id_check() {
+  label=$1
+  want_name=$2
+  want_email=$3
+  err=$(cd "$repo" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+  code=$?
+  got_name=$(git -C "$repo" config --local --get user.name || true)
+  got_email=$(git -C "$repo" config --local --get user.email || true)
+  if [ "$code" -eq 0 ] && [ "$err" = "" ] && [ "$got_name" = "$want_name" ] && [ "$got_email" = "$want_email" ]; then
+    pass=$((pass+1))
+  else
+    fail=$((fail+1))
+    printf 'FAIL %s\n  want 0 %s %s\n  got  %s [%s] %s %s\n' \
+      "$label" "$want_name" "$want_email" "$code" "$err" "$got_name" "$got_email"
+  fi
+}
+iddir=$(mktemp -d "$tmp/id.XXXXXX")
+id_repo "$iddir/unset"
+id_check id-unset 'Thomas Flaim' tflaim@gmail.com
+id_repo "$iddir/cursor"
+git -C "$repo" config user.name 'Cursor Agent'
+git -C "$repo" config user.email 'cursoragent@cursor.com'
+id_check id-cursor 'Thomas Flaim' tflaim@gmail.com
+id_repo "$iddir/other"
+git -C "$repo" config user.name 'Pat Example'
+git -C "$repo" config user.email 'pat@example.com'
+id_check id-other 'Pat Example' pat@example.com
 
 echo "githooks: $pass passed, $fail failed"
 [ "$fail" = 0 ]

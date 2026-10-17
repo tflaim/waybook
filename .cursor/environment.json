@@ -1,0 +1,4 @@
+{
+  "install": "sh .cursor/install-githooks.sh",
+  "start": "sh .cursor/install-githooks.sh"
+}
