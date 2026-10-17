@@ -17,7 +17,7 @@ Warm-start prints the short board index for a new session, optionally expands en
 - Run `waybook warm-start --query <words>`.
 - Run `waybook warm-start --read-only` (or with both `--query` and `--read-only`).
 - Run `waybook index` to rewrite `index.md`, or `waybook index --print` to print that index without a query expansion.
-- Session-start hook: `hooks/session-start` (calls the default, non-read-only form).
+- Session-start hook: `hooks/session-start`. With `WAYBOOK_QUERY` unset it runs `waybook warm-start`. With `WAYBOOK_QUERY` set it runs `waybook warm-start --query` on that value. Both are the default, non-read-only form.
 
 ## Driving it with control-waybook
 
@@ -33,7 +33,8 @@ Preconditions:
 - **Default write.** Run `control-waybook record warm-write -- warm-start --query sqlite`. Exit `0`; `.waybook/index.md` exists and matches the printed index for open entries. The expanded match's hidden usefulness becomes `0.1` and `log/writes.jsonl` grows by one line. Confirm with a fresh `control-waybook snapshot warm-after-write` compared to the earlier snapshot.
 - **Rewrite index.** Run `control-waybook record index-update -- index`. Exit `0`; stdout is `updated index`.
 - **Print index.** Run `control-waybook record index-print -- index --print`. Exit `0`; stdout starts with `DATA NOT INSTRUCTIONS` and lists the seeded titles.
-- **Session-start hook.** Run `hooks/session-start` from the project directory through a checkout `waybook` on `PATH`. A temporary `HOME` keeps the hook off `~/.local/bin/waybook`. Exit `0`; stdout starts with `DATA NOT INSTRUCTIONS` and lists the seeded titles. This is the default, non-read-only form.
+- **Session-start hook.** Run `hooks/session-start` from the project directory through a checkout `waybook` on `PATH`. A temporary `HOME` keeps the hook off `~/.local/bin/waybook`. Leave `WAYBOOK_QUERY` unset. Exit `0`; stdout starts with `DATA NOT INSTRUCTIONS` and lists the seeded titles. This is the default, non-read-only form.
+- **Session-start query.** Run the same hook with `WAYBOOK_QUERY=flat`. Exit `0`; stdout includes `### "Flat files"` and does not add a `## failed-attempts` expansion for `Tried SQLite`.
 
 ```sh
 project=$(control-waybook paths | awk -F= '/^project=/{print $2}')
@@ -55,6 +56,11 @@ hook_home=$(mktemp -d)
   HOME="$hook_home" PATH="$shim:$PATH" WAYBOOK_AGENT=verifier \
     sh "$repo/hooks/session-start"
 )
+(
+  cd "$project"
+  HOME="$hook_home" PATH="$shim:$PATH" WAYBOOK_AGENT=verifier WAYBOOK_QUERY=flat \
+    sh "$repo/hooks/session-start"
+)
 ```
 
 - **Proof.** Keep transcripts `warm-ro.transcript.txt`, `warm-query.transcript.txt`, `index-update.transcript.txt`, `index-print.transcript.txt`, and snapshot dirs under `/tmp/waybook-verify-evidence/warm-start/`.
@@ -62,6 +68,6 @@ hook_home=$(mktemp -d)
 ## Gotchas
 
 - Default `warm-start` (no `--read-only`) mutates the board. Use `--read-only` when the proof must not bump usefulness or rewrite the index.
-- Query matching is keyword overlap on title and one-liner, not full-body search.
+- A query matches only when every word appears in the title or one-liner. It does not search the body. On a dormant board (`project_active = false`) the command still prints the index and does not expand the query.
 - Inside a git checkout, warm-start may print a live `main:` tip line; the disposable helper project is not a git repo unless you create one, so absence of that line is expected there.
 - `hooks/session-start` is a separate entry point: proving only `control-waybook cli -- warm-start` does not verify the hook script.
