@@ -40,7 +40,7 @@ What launch does:
 
 **Isolation:** Every run uses its own project directory. Concurrent runs are safe if they use different `WAYBOOK_VERIFY_RUN_ID` values. Do **not** drive the developer's real project `.waybook/` or any board you did not launch. Refusing a shared instance is correct.
 
-**Clean shell.** Start from `env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}"`. Pass `TMPDIR` through so `mktemp` in the feature recipes has a directory. Do not export `WAYBOOK_*` or `HANKO_*` yourself. Launch prints `WAYBOOK_VERIFY_RUN_ID`. The helper sets `WAYBOOK_AGENT` and `WAYBOOK_NOW`.
+**Clean shell.** Start from `env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}"`. Pass `TMPDIR` through so `mktemp` in the feature recipes has a directory. The one `WAYBOOK_*` you export yourself is `WAYBOOK_VERIFY_RUN_ID`: launch prints it, and the launch block above exports that line before doctor and the feature recipes. Do not export any other `WAYBOOK_*` or any `HANKO_*`. The helper sets `WAYBOOK_AGENT` and `WAYBOOK_NOW`.
 
 **State paths stay on `/tmp`.** Instances live at `/tmp/waybook-verify/<run-id>/` and evidence at `/tmp/waybook-verify-evidence/<run-id>/`. Do not point `WAYBOOK_VERIFY_STATE_ROOT` or `WAYBOOK_VERIFY_EVIDENCE_ROOT` at `$TMPDIR`. On macOS `$TMPDIR` is a per-user directory, not `/tmp`. `/tmp` is a symlink to `/private/tmp`, so the `initialized` line can show `/private/tmp/...` while `project=` shows `/tmp/...`. Those strings name the same directory.
 

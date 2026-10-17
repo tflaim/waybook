@@ -68,6 +68,6 @@ hook_home=$(mktemp -d)
 ## Gotchas
 
 - Default `warm-start` (no `--read-only`) mutates the board. Use `--read-only` when the proof must not bump usefulness or rewrite the index.
-- A query matches only when every word appears in the title or one-liner. It does not search the body. On a dormant board (`project_active = false`) the command still prints the index and does not expand the query.
+- A query matches when every word is a case-insensitive substring of the title and one-liner together, so `flat` also matches `flatten`. It does not search the body. On a dormant board (`project_active = false`) the command still prints the index and does not expand the query.
 - Inside a git checkout, warm-start may print a live `main:` tip line; the disposable helper project is not a git repo unless you create one, so absence of that line is expected there.
 - `hooks/session-start` is a separate entry point: proving only `control-waybook cli -- warm-start` does not verify the hook script.
