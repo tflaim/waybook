@@ -13,6 +13,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1;;
     refs/heads/tflaim/[a-z0-9]*|refs/tags/*) ;;
     *)
+      [ "$local_sha" = "$zero" ] && continue
       b=${remote_ref#refs/heads/}
       slug=$(printf '%s' "${b#*/}" | tr 'A-Z/' 'a-z-')
       echo "pre-push: branch '$b' must be tflaim/<slug>. Fix: git push origin HEAD:tflaim/$slug" >&2
