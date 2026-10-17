@@ -141,5 +141,127 @@ drive_strip keep-someone-with-thomas-flaim present "$tmp/keep-thomas" "$tmp/keep
 drive_strip missing-co-author-byte-identical missing "$tmp/cursor-in" "$tmp/cursor-in"
 drive_strip unreadable-co-author-byte-identical unreadable "$tmp/cursor-in" "$tmp/cursor-in"
 
+# start runs before the dispatcher directory exists; a detached waiter links z-house later.
+root=$(CDPATH= cd "$hooks/.." && pwd)
+late_top() {
+  repo=$1
+  git init -q -b main "$repo"
+  mkdir -p "$repo/.cursor" "$repo/githooks"
+  cp "$root/.cursor/install-githooks.sh" "$root/.cursor/drop-cursor-trailer.sh" "$repo/.cursor/"
+  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$repo/githooks/"
+  chmod +x "$repo/.cursor/install-githooks.sh" "$repo/.cursor/drop-cursor-trailer.sh" \
+    "$repo/githooks/commit-msg" "$repo/githooks/pre-push"
+  top=$(git -C "$repo" rev-parse --show-toplevel)
+  key=$(printf '%s' "$top" | cksum | awk '{print $1}')
+  log=/tmp/install-githooks-z-house.$key.log
+  lockdir=/tmp/install-githooks-z-house.$key.lock
+  rm -rf "$lockdir"
+  rm -f "$log"
+}
+late_stop() {
+  if [ -f "$lockdir/pid" ]; then
+    kill "$(cat "$lockdir/pid")" 2>/dev/null || true
+  fi
+  rm -rf "$lockdir"
+  rm -f "$log"
+}
+wait_link() {
+  i=0
+  link=
+  while [ "$i" -lt 40 ]; do
+    link=$(readlink "$top/dispatcher/commit-msg.cursor.z-house" 2>/dev/null || true)
+    if [ "$link" = "$top/.cursor/drop-cursor-trailer.sh" ]; then
+      return
+    fi
+    link=
+    sleep 0.2
+    i=$((i+1))
+  done
+}
+
+latedir=$(mktemp -d "$tmp/late.XXXXXX")
+late_top "$latedir/unset"
+t0=$(date +%s)
+err=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code=$?
+err2=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code2=$?
+t1=$(date +%s)
+elapsed=$((t1 - t0))
+absent=0
+[ ! -d "$top/dispatcher" ] && absent=1
+sleep 1
+git -C "$top" config core.hooksPath "$top/dispatcher"
+mkdir -p "$top/stage"
+printf '#!/bin/sh\nexit 0\n' > "$top/stage/commit-msg.cursor.co-author"
+chmod +x "$top/stage/commit-msg.cursor.co-author"
+mv "$top/stage" "$top/dispatcher"
+wait_link
+if [ "$code" -eq 0 ] && [ "$code2" -eq 0 ] && [ "$err" = "" ] && [ "$err2" = "" ] \
+  && [ "$absent" -eq 1 ] && [ "$elapsed" -le 3 ] \
+  && [ "$link" = "$top/.cursor/drop-cursor-trailer.sh" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-link-unset\n  code %s %s err [%s] [%s] absent %s elapsed %s link %s\n' \
+    "$code" "$code2" "$err" "$err2" "$absent" "$elapsed" "$link"
+fi
+late_stop
+
+late_top "$latedir/missing"
+git -C "$top" config core.hooksPath "$top/dispatcher"
+t0=$(date +%s)
+err=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code=$?
+t1=$(date +%s)
+elapsed=$((t1 - t0))
+absent=0
+[ ! -d "$top/dispatcher" ] && absent=1
+sleep 1
+mkdir -p "$top/stage"
+printf '#!/bin/sh\nexit 0\n' > "$top/stage/commit-msg.cursor.co-author"
+chmod +x "$top/stage/commit-msg.cursor.co-author"
+mv "$top/stage" "$top/dispatcher"
+wait_link
+if [ "$code" -eq 0 ] && [ "$err" = "" ] && [ "$absent" -eq 1 ] && [ "$elapsed" -le 2 ] \
+  && [ "$link" = "$top/.cursor/drop-cursor-trailer.sh" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-link-missing-dir\n  code %s err [%s] absent %s elapsed %s link %s\n' \
+    "$code" "$err" "$absent" "$elapsed" "$link"
+fi
+late_stop
+
+late_top "$latedir/bad"
+git -C "$top" config core.hooksPath "$top/dispatcher"
+err=$(cd "$top" && sh .cursor/install-githooks.sh 2>&1 >/dev/null)
+code=$?
+sleep 1
+mkdir -p "$top/stage"
+printf '#!/bin/sh\nexit 0\n' > "$top/stage/commit-msg.cursor.zz-co-author"
+chmod +x "$top/stage/commit-msg.cursor.zz-co-author"
+mv "$top/stage" "$top/dispatcher"
+want='install-githooks: commit-msg.cursor.z-house sorts before commit-msg.cursor.zz-co-author'
+i=0
+logged=0
+while [ "$i" -lt 40 ]; do
+  if [ -f "$log" ] && grep -qx "$want" "$log"; then
+    logged=1
+    break
+  fi
+  sleep 0.2
+  i=$((i+1))
+done
+if [ "$code" -eq 0 ] && [ "$err" = "" ] && [ "$logged" -eq 1 ] \
+  && [ ! -e "$top/dispatcher/commit-msg.cursor.z-house" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-sort-fail\n  code %s err [%s] logged %s\n' "$code" "$err" "$logged"
+  cat "$log" 2>/dev/null || true
+fi
+late_stop
+
 echo "githooks: $pass passed, $fail failed"
 [ "$fail" = 0 ]
