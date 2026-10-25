@@ -3,7 +3,17 @@
 # the remote's main is by Thomas Flaim <tflaim@gmail.com> with no AI trailers (catches --no-verify commits).
 # Install: git config core.hooksPath githooks
 want='Thomas Flaim <tflaim@gmail.com>'
-ai='cursoragent@cursor\.com|^(Co-authored-by|Generated-by|Made-with):|^[A-Za-z][A-Za-z-]*:.*https?://[^ ]*(cursor\.com|claude\.(ai|com))|\]\(https?://[^)]*(cursor\.com|claude\.(ai|com))|Generated with \[?Claude Code|CURSOR_AGENT_PR_BODY|🤖'
+self=$0
+if [ -L "$self" ]; then
+  link=$(readlink "$self") || exit 1
+  case $link in
+    /*) self=$link ;;
+    *) self=$(CDPATH= cd "$(dirname "$self")" && pwd)/$link ;;
+  esac
+fi
+. "$(CDPATH= cd "$(dirname "$self")" && pwd)/attribution.sh"
+trap 'hanko_clear' EXIT
+trap 'hanko_clear; exit 1' INT TERM HUP
 zero=0000000000000000000000000000000000000000
 status=0
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -20,6 +30,22 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1;;
   esac
   [ "$local_sha" = "$zero" ] && continue
+  case "$remote_ref" in
+    refs/tags/*)
+      if [ "$(git cat-file -t "$local_sha" 2>/dev/null)" = tag ]; then
+        hits=$(git cat-file -p "$local_sha" | ai_hits)
+        rc=$?
+        tagname=${remote_ref#refs/tags/}
+        if [ "$rc" -eq 2 ]; then
+          echo "pre-push: could not normalize tag $tagname. $ai_norm_fix" >&2
+          status=1
+        elif [ "$rc" -eq 0 ]; then
+          echo "pre-push: tag $tagname carries AI attribution. Fix: git tag -d $tagname and create it again without that line." >&2
+          status=1
+        fi
+      fi
+      ;;
+  esac
   # Exclude only what is already on the remote's main (and this ref's own remote tip); commits that
   # sit on other remote branches, such as an agent's cursor/* branch, still get checked.
   base=
@@ -43,7 +69,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         status=1
       fi
     done
-    if git log -1 --format=%B "$c" | grep -qiE "$ai"; then
+    hits=$(git log -1 --format=%B "$c" | ai_hits)
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+      echo "pre-push: could not normalize commit $h. $ai_norm_fix" >&2
+      status=1
+    elif [ "$rc" -eq 0 ]; then
       echo "pre-push: commit $h carries AI attribution. Fix: git rebase -i and reword it." >&2
       status=1
     fi

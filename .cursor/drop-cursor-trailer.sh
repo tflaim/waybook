@@ -5,6 +5,7 @@ dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
 lines=
 for c in "$dir"/commit-msg.cursor*co-author*; do
   [ -f "$c" ] || continue
+  [ -r "$c" ] || continue
   got=$(awk '
     function take(s,   v) {
       while (1) {
@@ -50,10 +51,14 @@ awk '
     if (n == 0) exit 2
     last = n
     while (last > 0 && blank(line[last])) last--
-    if (last == 0 || !exact[line[last]]) exit 2
-    endat = last - 1
-    while (endat >= 1 && blank(line[endat])) endat--
-    for (i = 1; i <= endat; i++) print line[i]
+    stripped = 0
+    while (last > 0 && exact[line[last]]) {
+      stripped = 1
+      last--
+      while (last > 0 && blank(line[last])) last--
+    }
+    if (!stripped) exit 2
+    for (i = 1; i <= last; i++) print line[i]
   }
 ' "$tmp.list" "$f" > "$tmp"
 st=$?

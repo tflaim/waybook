@@ -5,3 +5,4 @@ __pycache__/
 .venv/
 dist/
 build/
+githooks/commit-msg.cursor.z-house
