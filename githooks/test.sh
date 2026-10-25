@@ -171,6 +171,8 @@ check fold-chain-commit 1 "$AI" "ulimit -v 524288 2>/dev/null || true; start=\$(
 printf 'x\n\nAssisted-by: Pat\n aa\n bb\n Claude\n' > "$tmp/fold3"
 printf 'x\n\nAssisted-by: Pat\n a\n b\n c\n Claude\n' > "$tmp/fold5"
 printf 'x\r\n\r\nAssisted-by: Pat\r\n  Claude\r\n' > "$tmp/crlf"
+printf 'x\r\n\r\nAssisted-by: Pat\r\r\n  Claude\r\n' > "$tmp/crcrlf"
+printf 'x\r\n\r\nAssisted-by: Pat\r\r\r\n  Claude\r\n' > "$tmp/crcrcrlf"
 printf 'Add a note\r\n' > "$tmp/crlfok"
 check assisted-by-fold-3 1 "$AI" "git commit -q --allow-empty -F '$tmp/fold3'"
 check assisted-by-fold-5 1 "$AI" "git commit -q --allow-empty -F '$tmp/fold5'"
@@ -214,6 +216,8 @@ printf '%s\n' '#!/bin/sh' \
   "exec $term_awk \"\$@\"" > "$tmp/mkterm/awk"
 chmod +x "$tmp/mkterm/awk"
 check trap-term 0 '' "d=\$(mktemp -d); PATH=$tmp/mkterm:\$PATH TMPDIR=\$d git commit -q --allow-empty -m 'Add a note' >/dev/null 2>&1; n=\$(find \$d -name 'hanko-*' 2>/dev/null | wc -l); rm -rf \$d; [ \"\$n\" -eq 0 ] || exit 4"
+awk 'BEGIN { print "x"; print ""; print "Signed-off-by: Pat"; for (i = 0; i < 120000; i++) print "  b" }' > "$tmp/slowfold"
+check group-term-ai-hits 0 '' "d=\$(mktemp -d); printf x > \"\$d/hanko-keep.sentinel\"; TMPDIR=\$d perl -MPOSIX -e 'POSIX::setsid() or die \"setsid: \$!\"; exec @ARGV or die \"exec: \$!\"' '$hooks/commit-msg' '$tmp/slowfold' >\"\$d/out\" 2>\"\$d/err\" & pid=\$!; end=\$((\$(date +%s)+30)); ok=0; while [ \"\$(date +%s)\" -lt \"\$end\" ]; do for f in \"\$d\"/hanko-in.*; do if [ -s \"\$f\" ]; then ok=1; break; fi; done; [ \"\$ok\" = 1 ] && break; done; if [ \"\$ok\" != 1 ]; then kill -TERM -\$pid 2>/dev/null; wait \$pid 2>/dev/null; rm -rf \"\$d\"; exit 4; fi; kill -TERM -\$pid; wait \$pid; code=\$?; n=0; for f in \"\$d\"/hanko-in.* \"\$d\"/hanko-norm.*; do [ -e \"\$f\" ] && n=\$((n+1)); done; k=0; for f in \"\$d\"/hanko-keep.*; do [ -e \"\$f\" ] && k=\$((k+1)); done; rm -rf \"\$d\"; [ \"\$code\" -ne 0 ] || exit 5; [ \"\$n\" -eq 0 ] || exit 6; [ \"\$k\" -eq 1 ] || exit 7"
 printf 'Co-authored-by\302\240: Pat\n' > "$tmp/nbsp-in"
 printf 'Co-authored-by : Pat\n' > "$tmp/nbsp-exp"
 printf 'Co-authored-\342\200\213by: Pat\n' > "$tmp/zwsp-in"
@@ -459,6 +463,12 @@ check assisted-by-fold-5-push 1 "pre-push: commit $h carries AI attribution. Fix
 git reset -q --hard "$good"
 h=$(git commit -q --no-verify --allow-empty --cleanup=verbatim -F "$tmp/crlf" && git rev-parse --short HEAD)
 check crlf-fold-push 1 "pre-push: commit $h carries AI attribution. Fix: git rebase -i and reword it." 'git push -q origin HEAD:tflaim/crlf'
+git reset -q --hard "$good"
+h=$(git commit -q --no-verify --allow-empty --cleanup=verbatim -F "$tmp/crcrlf" && git rev-parse --short HEAD)
+check crcrlf-fold-push 1 "pre-push: commit $h carries AI attribution. Fix: git rebase -i and reword it." 'git push -q origin HEAD:tflaim/crcrlf'
+git reset -q --hard "$good"
+h=$(git commit -q --no-verify --allow-empty --cleanup=verbatim -F "$tmp/crcrcrlf" && git rev-parse --short HEAD)
+check crcrcrlf-fold-push 1 "pre-push: commit $h carries AI attribution. Fix: git rebase -i and reword it." 'git push -q origin HEAD:tflaim/crcrcrlf'
 git reset -q --hard "$good"
 h=$(git commit -q --no-verify --allow-empty --cleanup=verbatim -F "$tmp/crlfok" && git rev-parse --short HEAD)
 check crlf-plain-push 0 '' 'git push -q origin HEAD:tflaim/crlfok'

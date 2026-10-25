@@ -61,7 +61,7 @@ ai_normalize() {
     }
     function crlf(rec, terminated) {
       if (terminated)
-        sub(/\r$/, "", rec)
+        sub(/\r+$/, "", rec)
       return rec
     }
     function take(line,    n, parts, i, s, c) {
@@ -120,12 +120,12 @@ ai_normalize() {
 
 ai_hits() {
   _ai_in_f=$(mktemp "${TMPDIR:-/tmp}/hanko-in.XXXXXX") || return 2
-  hanko_keep "$_ai_in_f"
   _ai_norm_f=$(mktemp "${TMPDIR:-/tmp}/hanko-norm.XXXXXX") || {
     rm -f "$_ai_in_f"
     return 2
   }
-  hanko_keep "$_ai_norm_f"
+  trap 'rm -f "$_ai_in_f" "$_ai_norm_f"' EXIT
+  trap 'rm -f "$_ai_in_f" "$_ai_norm_f"; exit 1' INT TERM HUP
   cat > "$_ai_in_f" || {
     rm -f "$_ai_in_f" "$_ai_norm_f"
     return 2
