@@ -7,6 +7,8 @@ description: "Verify Waybook (CLI board for decisions, open threads, failed atte
 
 Waybook is a **short-lived CLI** (plus an optional stdio MCP server). There is no HTTP port and no long-running app process for normal verification. Each drive is one or more `python3 -m waybook` invocations against an isolated project directory that owns its own `.waybook/`.
 
+`sh githooks/test.sh` must print `githooks: 267 passed, 0 failed`, exit 0, and write no stderr, under sh, dash, and bash, each plain and with `LC_ALL=C.UTF-8` and `LC_ALL=C` (the bash 3.2 and BSD tool run is Mac-only).
+
 Secondary surfaces (do not use as the primary proof path unless the change is MCP/hooks-specific): `waybook mcp` (stdio JSON-RPC), and the POSIX hooks under `hooks/` that shell out to the same CLI.
 
 ## Launch

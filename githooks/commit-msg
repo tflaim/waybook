@@ -2,13 +2,64 @@
 # House rules: author and committer are Thomas Flaim <tflaim@gmail.com>; no AI trailers or footers.
 # Install: git config core.hooksPath githooks
 want='Thomas Flaim <tflaim@gmail.com>'
-ai='cursoragent@cursor\.com|^(Co-authored-by|Generated-by|Made-with):|^[A-Za-z][A-Za-z-]*:.*https?://[^ ]*(cursor\.com|claude\.(ai|com))|\]\(https?://[^)]*(cursor\.com|claude\.(ai|com))|Generated with \[?Claude Code|CURSOR_AGENT_PR_BODY|🤖'
+self=$0
+if [ -L "$self" ]; then
+  link=$(readlink "$self") || exit 1
+  case $link in
+    /*) self=$link ;;
+    *) self=$(CDPATH= cd "$(dirname "$self")" && pwd)/$link ;;
+  esac
+fi
+. "$(CDPATH= cd "$(dirname "$self")" && pwd)/attribution.sh"
+trap 'hanko_clear' EXIT
+trap 'hanko_clear; exit 1' INT TERM HUP
 
 # Drop the `commit -v` diff below the scissors line, then comment lines.
 cc=$(git config core.commentChar); case "$cc" in ''|auto) cc='#';; esac
-body=$(awk -v s="$cc ------------------------ >8 ------------------------" '$0 == s {exit} {print}' "$1" |
-  git -c core.commentChar="$cc" stripspace --strip-comments)
-hits=$(printf '%s\n' "$body" | grep -iE "$ai")
+sc=$(mktemp "${TMPDIR:-/tmp}/hanko-sc.XXXXXX") || {
+  echo "commit-msg: could not normalize the message. $ai_norm_fix" >&2
+  exit 1
+}
+hanko_keep "$sc"
+bodyf=$(mktemp "${TMPDIR:-/tmp}/hanko-body.XXXXXX") || {
+  rm -f "$sc"
+  echo "commit-msg: could not normalize the message. $ai_norm_fix" >&2
+  exit 1
+}
+hanko_keep "$bodyf"
+awk -v s="$cc ------------------------ >8 ------------------------" '$0 == s {exit} {print}' "$1" > "$sc"
+sc_rc=$?
+if [ "$sc_rc" -ne 0 ]; then
+  rm -f "$sc" "$bodyf"
+  echo "commit-msg: could not normalize the message. $ai_norm_fix" >&2
+  exit 1
+fi
+LC_ALL=C grep -aq '[^[:space:]]' "$1"
+sc_in=$?
+LC_ALL=C grep -aq '[^[:space:]]' "$sc"
+sc_out=$?
+if [ "$sc_in" -gt 1 ] || [ "$sc_out" -gt 1 ] || {
+  [ "$sc_in" -eq 0 ] && [ "$sc_out" -ne 0 ]
+}; then
+  rm -f "$sc" "$bodyf"
+  echo "commit-msg: could not normalize the message. $ai_norm_fix" >&2
+  exit 1
+fi
+git -c core.commentChar="$cc" stripspace --strip-comments < "$sc" > "$bodyf"
+sc_rc=$?
+rm -f "$sc"
+if [ "$sc_rc" -ne 0 ]; then
+  rm -f "$bodyf"
+  echo "commit-msg: could not normalize the message. $ai_norm_fix" >&2
+  exit 1
+fi
+hits=$(ai_hits < "$bodyf")
+rc=$?
+rm -f "$bodyf"
+if [ "$rc" -eq 2 ]; then
+  echo "commit-msg: could not normalize the message. $ai_norm_fix" >&2
+  exit 1
+fi
 if [ -n "$hits" ]; then
   echo "commit-msg: AI attribution found:" >&2
   printf '%s\n' "$hits" | sed 's/^/  /' >&2

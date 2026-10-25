@@ -52,6 +52,11 @@ printf 'Line one.\n\nCo-authored-by: Pat <pat@example.com>\nCo-authored-by: %s\n
 printf 'Line one.\n\nCo-authored-by: Pat <pat@example.com>\n' > "$d/mix-want"
 run_drop "$(co_script "$cursor")" "$d/mix" "$d/mix-want" strip-trailing-keep-other
 
+both=$(printf '%s\n' '#!/bin/bash' 'CO_AUTHORS=(' "'$cursor'" "'$thomas'" ')')
+printf 'Line one.\n\nCo-authored-by: %s\n\nCo-authored-by: %s\n' "$cursor" "$thomas" > "$d/both"
+printf 'Line one.\n' > "$d/both-want"
+run_drop "$both" "$d/both" "$d/both-want" strip-every-trailing-co-author
+
 printf 'Line one.\n\nCo-authored-by: %s\nCo-authored-by: Pat <pat@example.com>\n' "$cursor" > "$d/mid"
 cp "$d/mid" "$d/mid-want"
 run_drop "$(co_script "$cursor")" "$d/mid" "$d/mid-want" keep-exact-not-trailing
@@ -93,7 +98,7 @@ mkdisp() {
   git init -q -b main "$repo"
   mkdir -p "$repo/.cursor" "$repo/githooks" "$repo/dispatcher"
   cp "$root/.cursor/install-githooks.sh" "$root/.cursor/drop-cursor-trailer.sh" "$repo/.cursor/"
-  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$repo/githooks/"
+  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$root/githooks/attribution.sh" "$repo/githooks/"
   chmod +x "$repo/.cursor/drop-cursor-trailer.sh" "$repo/githooks/commit-msg" "$repo/githooks/pre-push"
   printf '#!/bin/sh\nexit 0\n' > "$repo/dispatcher/.dispatcher"
   chmod +x "$repo/dispatcher/.dispatcher"
@@ -134,7 +139,7 @@ late_top() {
   git init -q -b main "$repo"
   mkdir -p "$repo/.cursor" "$repo/githooks"
   cp "$root/.cursor/install-githooks.sh" "$root/.cursor/drop-cursor-trailer.sh" "$repo/.cursor/"
-  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$repo/githooks/"
+  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$root/githooks/attribution.sh" "$repo/githooks/"
   chmod +x "$repo/.cursor/install-githooks.sh" "$repo/.cursor/drop-cursor-trailer.sh" \
     "$repo/githooks/commit-msg" "$repo/githooks/pre-push"
   top=$(git -C "$repo" rev-parse --show-toplevel)
@@ -341,7 +346,7 @@ repo=$dispdir/w
 git init -q -b main "$repo"
 mkdir -p "$repo/.cursor" "$repo/githooks" "$repo/dispatcher"
 cp "$root/.cursor/install-githooks.sh" "$root/.cursor/drop-cursor-trailer.sh" "$repo/.cursor/"
-cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$repo/githooks/"
+cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$root/githooks/attribution.sh" "$repo/githooks/"
 chmod +x "$repo/.cursor/install-githooks.sh" "$repo/.cursor/drop-cursor-trailer.sh" \
   "$repo/githooks/commit-msg" "$repo/githooks/pre-push"
 cat > "$repo/dispatcher/.dispatcher" << EOF
@@ -446,7 +451,7 @@ id_repo() {
   git init -q -b main "$repo"
   mkdir -p "$repo/.cursor" "$repo/githooks" "$repo/dispatcher"
   cp "$root/.cursor/install-githooks.sh" "$root/.cursor/drop-cursor-trailer.sh" "$repo/.cursor/"
-  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$repo/githooks/"
+  cp "$root/githooks/commit-msg" "$root/githooks/pre-push" "$root/githooks/attribution.sh" "$repo/githooks/"
   chmod +x "$repo/.cursor/install-githooks.sh" "$repo/.cursor/drop-cursor-trailer.sh" \
     "$repo/githooks/commit-msg" "$repo/githooks/pre-push"
   git -C "$repo" config core.hooksPath "$repo/dispatcher"
