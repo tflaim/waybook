@@ -7,7 +7,7 @@ description: "Verify Waybook (CLI board for decisions, open threads, failed atte
 
 Waybook is a **short-lived CLI** (plus an optional stdio MCP server). There is no HTTP port and no long-running app process for normal verification. Each drive is one or more `python3 -m waybook` invocations against an isolated project directory that owns its own `.waybook/`.
 
-`sh githooks/test.sh` must print `githooks: 270 passed, 0 failed`, exit 0, and write no stderr, under sh, dash, and bash, each plain and with `LC_ALL=C.UTF-8` and `LC_ALL=C` (the bash 3.2 and BSD tool run is Mac-only). The group-kill test needs perl on PATH (`POSIX::setsid`).
+`sh githooks/test.sh` runs the suite once in the shell that starts it. It must print `githooks: 277 passed, 0 failed`, exit 0, and write no stderr. The nine-run check is separate: `/bin/sh`, `/usr/bin/dash`, and `/bin/bash`, each plain and with `LC_ALL=C.UTF-8` and `LC_ALL=C`. That matrix is Linux evidence. The bash 3.2 and BSD tool run is Mac-only. The group-kill test needs perl on PATH (`POSIX::setsid`). The `ai_hits` signal trap exits 2; callers treat 1 as a clean grep and 2 as a normalize failure. `late_stop` and the waiter-pid read take the pid with `cat ... 2>/dev/null || true` and skip the kill when it is empty, and `late-stop-vanished-pid` deletes the pid file inside `cat`. Restoring the old `late_stop` on this suite prints `githooks: 276 passed, 1 failed`.
 
 Secondary surfaces (do not use as the primary proof path unless the change is MCP/hooks-specific): `waybook mcp` (stdio JSON-RPC), and the POSIX hooks under `hooks/` that shell out to the same CLI.
 

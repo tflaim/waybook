@@ -125,7 +125,7 @@ ai_hits() {
     return 2
   }
   trap 'rm -f "$_ai_in_f" "$_ai_norm_f"' EXIT
-  trap 'rm -f "$_ai_in_f" "$_ai_norm_f"; exit 1' INT TERM HUP
+  trap 'rm -f "$_ai_in_f" "$_ai_norm_f"; exit 2' INT TERM HUP
   cat > "$_ai_in_f" || {
     rm -f "$_ai_in_f" "$_ai_norm_f"
     return 2

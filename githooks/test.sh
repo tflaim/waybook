@@ -216,8 +216,94 @@ printf '%s\n' '#!/bin/sh' \
   "exec $term_awk \"\$@\"" > "$tmp/mkterm/awk"
 chmod +x "$tmp/mkterm/awk"
 check trap-term 0 '' "d=\$(mktemp -d); PATH=$tmp/mkterm:\$PATH TMPDIR=\$d git commit -q --allow-empty -m 'Add a note' >/dev/null 2>&1; n=\$(find \$d -name 'hanko-*' 2>/dev/null | wc -l); rm -rf \$d; [ \"\$n\" -eq 0 ] || exit 4"
+mkdir -p "$tmp/mksig"
+printf '%s\n' '#!/bin/sh' \
+  'for a in "$@"; do' \
+  '  case $a in' \
+  '    *">8"*)' \
+  '      kill -${HOOK_SIG:?} $PPID' \
+  '      i=0' \
+  '      while kill -0 $PPID 2>/dev/null; do' \
+  '        i=$((i+1))' \
+  '        [ "$i" -gt 200000 ] && break' \
+  '      done' \
+  '      exit 0 ;;' \
+  '  esac' \
+  'done' \
+  "exec $term_awk \"\$@\"" > "$tmp/mksig/awk"
+chmod +x "$tmp/mksig/awk"
+check trap-int 0 '' "d=\$(mktemp -d); HOOK_SIG=INT PATH=$tmp/mksig:\$PATH TMPDIR=\$d git commit -q --allow-empty -m 'Add a note' >/dev/null 2>&1; n=\$(find \$d -name 'hanko-*' 2>/dev/null | wc -l); rm -rf \$d; [ \"\$n\" -eq 0 ] || exit 4"
+check trap-hup 0 '' "d=\$(mktemp -d); HOOK_SIG=HUP PATH=$tmp/mksig:\$PATH TMPDIR=\$d git commit -q --allow-empty -m 'Add a note' >/dev/null 2>&1; n=\$(find \$d -name 'hanko-*' 2>/dev/null | wc -l); rm -rf \$d; [ \"\$n\" -eq 0 ] || exit 4"
+mkdir -p "$tmp/pidawk"
+printf '%s\n' '#!/bin/sh' \
+  'for a in "$@"; do' \
+  '  case $a in' \
+  '    *endnl*)' \
+  '      kill -TERM $PPID' \
+  '      i=0' \
+  '      while kill -0 $PPID 2>/dev/null; do' \
+  '        i=$((i+1))' \
+  '        [ "$i" -gt 200000 ] && break' \
+  '      done' \
+  '      exit 1 ;;' \
+  '  esac' \
+  'done' \
+  "exec $term_awk \"\$@\"" > "$tmp/pidawk/awk"
+chmod +x "$tmp/pidawk/awk"
+check pid-term-commit 1 "commit-msg: could not normalize the message. $NORM" "b=\$(git rev-parse HEAD); d=\$(mktemp -d); PATH=$tmp/pidawk:\$PATH TMPDIR=\$d git commit -q --allow-empty -m x -m 'Co-authored-by: Claude <noreply@anthropic.com>'; c=\$?; git reset -q --hard \"\$b\"; n=0; for f in \"\$d\"/hanko-in.* \"\$d\"/hanko-norm.*; do [ -e \"\$f\" ] && n=\$((n+1)); done; rm -rf \"\$d\"; [ \"\$n\" -eq 0 ] || exit 4; exit \$c"
 awk 'BEGIN { print "x"; print ""; print "Signed-off-by: Pat"; for (i = 0; i < 120000; i++) print "  b" }' > "$tmp/slowfold"
-check group-term-ai-hits 0 '' "d=\$(mktemp -d); printf x > \"\$d/hanko-keep.sentinel\"; TMPDIR=\$d perl -MPOSIX -e 'POSIX::setsid() or die \"setsid: \$!\"; exec @ARGV or die \"exec: \$!\"' '$hooks/commit-msg' '$tmp/slowfold' >\"\$d/out\" 2>\"\$d/err\" & pid=\$!; end=\$((\$(date +%s)+30)); ok=0; while [ \"\$(date +%s)\" -lt \"\$end\" ]; do for f in \"\$d\"/hanko-in.*; do if [ -s \"\$f\" ]; then ok=1; break; fi; done; [ \"\$ok\" = 1 ] && break; done; if [ \"\$ok\" != 1 ]; then kill -TERM -\$pid 2>/dev/null; wait \$pid 2>/dev/null; rm -rf \"\$d\"; exit 4; fi; kill -TERM -\$pid; wait \$pid; code=\$?; n=0; for f in \"\$d\"/hanko-in.* \"\$d\"/hanko-norm.*; do [ -e \"\$f\" ] && n=\$((n+1)); done; k=0; for f in \"\$d\"/hanko-keep.*; do [ -e \"\$f\" ] && k=\$((k+1)); done; rm -rf \"\$d\"; [ \"\$code\" -ne 0 ] || exit 5; [ \"\$n\" -eq 0 ] || exit 6; [ \"\$k\" -eq 1 ] || exit 7"
+cat > "$tmp/groupkill.sh" << 'END'
+group_kill() {
+  sig=$1
+  hooks=$2
+  msg=$3
+  command -v perl >/dev/null || { printf '%s\n' 'group-term-ai-hits: perl is required' >&2; exit 8; }
+  perl -MPOSIX -e 'POSIX::setsid() or exit 1' >/dev/null 2>&1 || {
+    printf '%s\n' 'group-term-ai-hits: setsid failed' >&2
+    exit 9
+  }
+  d=$(mktemp -d)
+  printf x > "$d/hanko-keep.sentinel"
+  (
+    end=$(($(date +%s) + 30))
+    while [ "$(date +%s)" -lt "$end" ]; do
+      pid=$(cat "$d/pid" 2>/dev/null || true)
+      if [ -n "$pid" ]; then
+        for f in "$d"/hanko-in.*; do
+          if [ -s "$f" ]; then
+            kill -"$sig" -"$pid"
+            exit 0
+          fi
+        done
+      fi
+    done
+    exit 4
+  ) &
+  killer=$!
+  PIDFILE=$d/pid TMPDIR=$d perl -MPOSIX -e 'POSIX::setsid() or die "setsid: $!"; open(my $fh, ">", $ENV{PIDFILE}) or die $!; print $fh $$; close $fh; exec @ARGV or die "exec: $!"' \
+    "$hooks/commit-msg" "$msg" >"$d/out" 2>"$d/err"
+  code=$?
+  kill "$killer" 2>/dev/null
+  wait "$killer"
+  kstatus=$?
+  n=0
+  for f in "$d"/hanko-in.* "$d"/hanko-norm.*; do
+    [ -e "$f" ] && n=$((n+1))
+  done
+  k=0
+  for f in "$d"/hanko-keep.*; do
+    [ -e "$f" ] && k=$((k+1))
+  done
+  rm -rf "$d"
+  [ "$kstatus" -ne 4 ] || exit 4
+  [ "$code" -ne 0 ] || exit 5
+  [ "$n" -eq 0 ] || exit 6
+  [ "$k" -eq 1 ] || exit 7
+}
+END
+check group-term-ai-hits 0 '' ". '$tmp/groupkill.sh'; group_kill TERM '$hooks' '$tmp/slowfold'"
+check group-hup-ai-hits 0 '' ". '$tmp/groupkill.sh'; group_kill HUP '$hooks' '$tmp/slowfold'"
+check group-int-ai-hits 0 '' ". '$tmp/groupkill.sh'; group_kill INT '$hooks' '$tmp/slowfold'"
 printf 'Co-authored-by\302\240: Pat\n' > "$tmp/nbsp-in"
 printf 'Co-authored-by : Pat\n' > "$tmp/nbsp-exp"
 printf 'Co-authored-\342\200\213by: Pat\n' > "$tmp/zwsp-in"
@@ -475,6 +561,10 @@ check crlf-plain-push 0 '' 'git push -q origin HEAD:tflaim/crlfok'
 git reset -q --hard "$good"
 h=$(bad -m x -m 'Co-authored-by: Claude <noreply@anthropic.com>')
 check temps-push-dirty 1 "pre-push: commit $h carries AI attribution. Fix: git rebase -i and reword it." "d=\$(mktemp -d); TMPDIR=\$d git push -q origin HEAD:tflaim/tmps; c=\$?; n=\$(find \$d -name 'hanko-*' 2>/dev/null | wc -l); rm -rf \$d; git push -q --no-verify origin :refs/heads/tflaim/tmps >/dev/null 2>&1 || true; [ \"\$n\" -eq 0 ] || exit 4; exit \$c"
+git reset -q --hard "$good"
+git commit -q --allow-empty --no-verify -m x -m 'Co-authored-by: Claude <noreply@anthropic.com>'
+h=$(git rev-parse --short HEAD)
+check pid-term-push 1 "pre-push: could not normalize commit $h. $NORM" "d=\$(mktemp -d); PATH=$tmp/pidawk:\$PATH TMPDIR=\$d git push -q origin HEAD:tflaim/pidterm; c=\$?; n=0; for f in \"\$d\"/hanko-in.* \"\$d\"/hanko-norm.*; do [ -e \"\$f\" ] && n=\$((n+1)); done; rm -rf \"\$d\"; git push -q --no-verify origin :refs/heads/tflaim/pidterm >/dev/null 2>&1 || true; [ \"\$n\" -eq 0 ] || exit 4; exit \$c"
 git reset -q --hard "$good"
 git commit -q --allow-empty -m 'Add a clean note'
 check mktemp-fail-push 1 "pre-push: could not normalize commit $(git rev-parse --short HEAD). $NORM" "PATH=$tmp/mkfail:\$PATH git push -q origin HEAD:tflaim/mkfail; c=\$?; git push -q --no-verify origin :refs/heads/tflaim/mkfail >/dev/null 2>&1 || true; exit \$c"

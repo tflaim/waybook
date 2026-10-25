@@ -150,8 +150,9 @@ late_top() {
   rm -f "$log"
 }
 late_stop() {
-  if [ -f "$lockdir/pid" ]; then
-    kill "$(cat "$lockdir/pid")" 2>/dev/null || true
+  pid=$(cat "$lockdir/pid" 2>/dev/null || true)
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
   fi
   rm -rf "$lockdir"
   rm -f "$log"
@@ -289,8 +290,8 @@ i=0
 pid=
 state=
 while [ "$i" -lt 25 ]; do
-  if [ -f "$lockdir/pid" ]; then
-    pid=$(cat "$lockdir/pid")
+  pid=$(cat "$lockdir/pid" 2>/dev/null || true)
+  if [ -n "$pid" ]; then
     break
   fi
   sleep 0.1
@@ -484,3 +485,28 @@ git -C "$repo" config user.name 'Pat Example'
 git -C "$repo" config user.email 'pat@example.com'
 id_check id-other 'Pat Example' pat@example.com
 rm -rf "$iddir"
+race=$(mktemp -d)
+mkdir -p "$race/lock"
+printf '999999\n' > "$race/lock/pid"
+catcmd=$(command -v cat)
+printf '%s\n' '#!/bin/sh' \
+  'for a in "$@"; do' \
+  '  case $a in' \
+  '    */pid) rm -f "$a" ;;' \
+  '  esac' \
+  'done' \
+  "exec \"$catcmd\" \"\$@\"" > "$race/cat"
+chmod +x "$race/cat"
+err=$(
+  lockdir=$race/lock
+  log=$race/log
+  PATH=$race:$PATH
+  late_stop 2>&1 >/dev/null
+)
+if [ "$err" = "" ]; then
+  pass=$((pass+1))
+else
+  fail=$((fail+1))
+  printf 'FAIL late-stop-vanished-pid\n  %s\n' "$err"
+fi
+rm -rf "$race"
